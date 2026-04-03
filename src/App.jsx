@@ -16,7 +16,7 @@ const CHONG = "Chong";
 const MAX_JUDGES = 5;
 
 function getBaseURL() {
-  return "http://192.168.0.146:5173";
+  return window.location.origin;
 }
 
 function clone(obj) {
@@ -482,6 +482,18 @@ function AppButton({ children, style = {}, onClick, ...props }) {
   );
 }
 
+
+function LogoHeader({ subtitle = "" }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 14, flexDirection: "column" }}>
+      <img src="/logo.png" alt="Hwarang Scoring Universe" style={{ height: 68, width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 10px rgba(255,215,0,0.18))" }} />
+      {subtitle ? (
+        <div style={{ fontSize: 12, letterSpacing: 3, color: "#d7d7d7", fontWeight: 700, textTransform: "uppercase" }}>{subtitle}</div>
+      ) : null}
+    </div>
+  );
+}
+
 function WinnerFullScreen({ winner, zIndex = 50 }) {
   if (winner === "draw") {
     return (
@@ -778,6 +790,7 @@ function Home({ navigate, meta }) {
 
   return (
     <div style={styles.page}>
+      <LogoHeader subtitle="Hwarang Scoring Universe" />
       <h1>Hwarang Scoring Patterns Gups</h1>
       <p>Elegí una pantalla:</p>
 
@@ -807,6 +820,10 @@ function PublicScreen({ meta, navigate }) {
       <AppButton style={{ ...styles.gray, position: "absolute", top: 14, left: 14, zIndex: 3 }} onClick={() => navigate("/")}>
         Inicio
       </AppButton>
+
+      <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 3 }}>
+        <LogoHeader subtitle="Patterns Gups" />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(240px, 32%) minmax(0,1fr)", alignItems: "stretch", gap: 20, height: "100%" }}>
         <div style={{ borderRadius: 28, background: "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)", display: "flex", justifyContent: "center", alignItems: "center", padding: "22px 18px", minWidth: 0 }}>
@@ -1098,6 +1115,8 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   if (judgeId > activeJudgeCount(meta)) {
     return (
       <div style={styles.page}>
+      <LogoHeader subtitle="Patterns Gups" />
+      <LogoHeader subtitle="Patterns Gups" />
         <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
         <h1>Juez {judgeId}</h1>
         <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
