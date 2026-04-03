@@ -452,6 +452,24 @@ function Frame16x9({ children }) {
   );
 }
 
+function BrandHeaderLarge() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 18, marginBottom: 14 }}>
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 82, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 82, objectFit: "contain" }} />
+    </div>
+  );
+}
+
+function BrandHeaderSmall() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, margin: "8px 0 12px" }}>
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 40, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 40, objectFit: "contain" }} />
+    </div>
+  );
+}
+
 function AppButton({ children, style = {}, onClick, ...props }) {
   return (
     <button
@@ -479,18 +497,6 @@ function AppButton({ children, style = {}, onClick, ...props }) {
     >
       {children}
     </button>
-  );
-}
-
-
-function LogoHeader({ subtitle = "" }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 14, flexDirection: "column" }}>
-      <img src="/logo.png" alt="Hwarang Scoring Universe" style={{ height: 68, width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 10px rgba(255,215,0,0.18))" }} />
-      {subtitle ? (
-        <div style={{ fontSize: 12, letterSpacing: 3, color: "#d7d7d7", fontWeight: 700, textTransform: "uppercase" }}>{subtitle}</div>
-      ) : null}
-    </div>
   );
 }
 
@@ -790,7 +796,6 @@ function Home({ navigate, meta }) {
 
   return (
     <div style={styles.page}>
-      <LogoHeader subtitle="Hwarang Scoring Universe" />
       <h1>Hwarang Scoring Patterns Gups</h1>
       <p>Elegí una pantalla:</p>
 
@@ -821,8 +826,8 @@ function PublicScreen({ meta, navigate }) {
         Inicio
       </AppButton>
 
-      <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 3 }}>
-        <LogoHeader subtitle="Patterns Gups" />
+      <div style={{ position: "absolute", top: 16, left: 0, right: 0, zIndex: 4 }}>
+        <BrandHeaderLarge />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(240px, 32%) minmax(0,1fr)", alignItems: "stretch", gap: 20, height: "100%" }}>
@@ -1115,9 +1120,8 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   if (judgeId > activeJudgeCount(meta)) {
     return (
       <div style={styles.page}>
-      <LogoHeader subtitle="Patterns Gups" />
-      <LogoHeader subtitle="Patterns Gups" />
         <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
+        <BrandHeaderSmall />
         <h1>Juez {judgeId}</h1>
         <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
       </div>
@@ -1181,6 +1185,8 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   return (
     <div style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
       <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
+
+      <BrandHeaderSmall />
 
       <h1>Juez {judgeId}</h1>
 
