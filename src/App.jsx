@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   onSnapshot,
   runTransaction,
@@ -77,33 +77,17 @@ function playTone({
 }
 
 function playButtonSound() {
-  playTone({
-    frequency: 720,
-    duration: 0.05,
-    type: "square",
-    gain: 0.025,
-    sweepTo: 620,
-  });
+  playTone({ frequency: 720, duration: 0.05, type: "square", gain: 0.025, sweepTo: 620 });
 }
 
 function playStartAlarm() {
-  playTone({
-    frequency: 700,
-    duration: 0.12,
-    type: "sawtooth",
-    gain: 0.045,
-  });
+  playTone({ frequency: 700, duration: 0.12, type: "sawtooth", gain: 0.045 });
   setTimeout(() => playTone({ frequency: 950, duration: 0.12, type: "sawtooth", gain: 0.045 }), 140);
   setTimeout(() => playTone({ frequency: 1250, duration: 0.18, type: "sawtooth", gain: 0.05 }), 290);
 }
 
 function playEndAlarm() {
-  playTone({
-    frequency: 900,
-    duration: 0.12,
-    type: "triangle",
-    gain: 0.05,
-  });
+  playTone({ frequency: 900, duration: 0.12, type: "triangle", gain: 0.05 });
   setTimeout(() => playTone({ frequency: 700, duration: 0.14, type: "triangle", gain: 0.05 }), 160);
   setTimeout(() => playTone({ frequency: 500, duration: 0.2, type: "triangle", gain: 0.055 }), 340);
 }
@@ -117,6 +101,36 @@ function playWinnerSound() {
 function tapFeedback({ vibrateMs = 30 } = {}) {
   vibrate(vibrateMs);
   playButtonSound();
+}
+
+function getBaseCompetitor(label) {
+  return {
+    label,
+    name: label.toUpperCase(),
+    club: "",
+  };
+}
+
+function GlobalAppStyle() {
+  return (
+    <style>{`
+      html, body, #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: Arial, sans-serif;
+      }
+      input, button, textarea, select {
+        font-family: inherit;
+      }
+    `}</style>
+  );
 }
 
 function makeJudge(id) {
@@ -177,8 +191,38 @@ function makeInitialMeta() {
     status: "paused",
     pausedRemaining: 120,
     phaseStartedAt: null,
+    hong: getBaseCompetitor(HONG),
+    chong: getBaseCompetitor(CHONG),
+    publicSwapSides: false,
+    presidentSwapSides: false,
     patternResult: makeEmptyPatternResult(),
     updatedAt: Date.now(),
+  };
+}
+
+
+function ensureMetaShape(raw) {
+  const base = makeInitialMeta();
+  const current = raw || {};
+  return {
+    ...base,
+    ...current,
+    config: {
+      ...base.config,
+      ...(current.config || {}),
+    },
+    hong: {
+      ...base.hong,
+      ...(current.hong || {}),
+    },
+    chong: {
+      ...base.chong,
+      ...(current.chong || {}),
+    },
+    patternResult: {
+      ...base.patternResult,
+      ...(current.patternResult || {}),
+    },
   };
 }
 
@@ -199,9 +243,7 @@ function formatTime(totalSeconds) {
 
 function getDerivedTime(meta, now = Date.now()) {
   if (!meta) return 0;
-  if (meta.status !== "running" || !meta.phaseStartedAt) {
-    return meta.pausedRemaining || 0;
-  }
+  if (meta.status !== "running" || !meta.phaseStartedAt) return meta.pausedRemaining || 0;
   const elapsed = Math.floor((now - meta.phaseStartedAt) / 1000);
   return Math.max(0, (meta.pausedRemaining || 0) - elapsed);
 }
@@ -221,17 +263,8 @@ function patternTotalsForJudge(judge) {
   const hongZero = !!judge.pattern?.hong?.zero;
   const chongZero = !!judge.pattern?.chong?.zero;
 
-  const hong = hongZero
-    ? 0
-    : (judge.pattern?.hong?.tech || 0) +
-      (judge.pattern?.hong?.power || 0) +
-      (judge.pattern?.hong?.rhythm || 0);
-
-  const chong = chongZero
-    ? 0
-    : (judge.pattern?.chong?.tech || 0) +
-      (judge.pattern?.chong?.power || 0) +
-      (judge.pattern?.chong?.rhythm || 0);
+  const hong = hongZero ? 0 : (judge.pattern?.hong?.tech || 0) + (judge.pattern?.hong?.power || 0) + (judge.pattern?.hong?.rhythm || 0);
+  const chong = chongZero ? 0 : (judge.pattern?.chong?.tech || 0) + (judge.pattern?.chong?.power || 0) + (judge.pattern?.chong?.rhythm || 0);
 
   return { hong, chong };
 }
@@ -264,6 +297,29 @@ function patternSummary(meta, judges) {
   return { hong, chong, sent, winner };
 }
 
+function getDisplaySides(meta, context = "public") {
+  const swap = context === "public" ? !!meta.publicSwapSides : !!meta.presidentSwapSides;
+
+  const hong = {
+    ...(meta.hong || getBaseCompetitor(HONG)),
+    side: "hong",
+    color: "hong",
+    visualLabel: "HONG",
+  };
+  const chong = {
+    ...(meta.chong || getBaseCompetitor(CHONG)),
+    side: "chong",
+    color: "chong",
+    visualLabel: "CHONG",
+  };
+
+  if (!swap) {
+    return { left: chong, right: hong };
+  }
+
+  return { left: hong, right: chong };
+}
+
 async function ensureInitialDocs() {
   const metaSnap = await getDoc(matchMetaRef);
 
@@ -274,7 +330,7 @@ async function ensureInitialDocs() {
   const existing = await getDocs(query(judgesColRef));
   const ids = new Set(existing.docs.map((d) => d.id));
 
-  for (let i = 1; i <= MAX_JUDGES; i++) {
+  for (let i = 1; i <= MAX_JUDGES; i += 1) {
     if (!ids.has(String(i))) {
       await setDoc(judgeRef(i), makeJudge(i));
     }
@@ -283,26 +339,20 @@ async function ensureInitialDocs() {
 
 function useFightData() {
   const [meta, setMeta] = useState(null);
-  const [judges, setJudges] = useState(
-    Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1))
-  );
+  const [judges, setJudges] = useState(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
 
   useEffect(() => {
     ensureInitialDocs();
 
     const unsubMeta = onSnapshot(matchMetaRef, (snap) => {
-      if (snap.exists()) setMeta(snap.data());
+      if (snap.exists()) setMeta(ensureMetaShape(snap.data())); else setMeta(makeInitialMeta());
     });
 
     const unsubJudges = onSnapshot(judgesColRef, (snap) => {
-      const next = Array.from({ length: MAX_JUDGES }, (_, i) =>
-        makeJudge(i + 1)
-      );
+      const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
       snap.docs.forEach((doc) => {
         const idx = Number(doc.id) - 1;
-        if (idx >= 0 && idx < MAX_JUDGES) {
-          next[idx] = normalizeJudge(doc.data(), idx + 1);
-        }
+        if (idx >= 0 && idx < MAX_JUDGES) next[idx] = normalizeJudge(doc.data(), idx + 1);
       });
       setJudges(next);
     });
@@ -314,35 +364,29 @@ function useFightData() {
   }, []);
 
   const writeMeta = async (mutator) => {
-    await runTransaction(db, async (t) => {
-      const snap = await t.get(matchMetaRef);
-      const current = snap.exists() ? snap.data() : makeInitialMeta();
-      const next = mutator(clone(current));
-      next.updatedAt = Date.now();
-      t.set(matchMetaRef, next);
-    });
+    const snap = await getDoc(matchMetaRef);
+    const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
+    const draft = clone(current);
+    const result = typeof mutator === "function" ? mutator(draft) : mutator;
+    const next = ensureMetaShape(result ?? draft);
+    next.updatedAt = Date.now();
+    await setDoc(matchMetaRef, next);
   };
 
   const writeJudge = async (id, mutator) => {
-    let out = null;
-
-    await runTransaction(db, async (t) => {
-      const ref = judgeRef(id);
-      const snap = await t.get(ref);
-      const current = snap.exists()
-        ? normalizeJudge(snap.data(), id)
-        : makeJudge(id);
-      const next = mutator(clone(current));
-      t.set(ref, next);
-      out = next;
-    });
-
-    return out;
+    const ref = judgeRef(id);
+    const snap = await getDoc(ref);
+    const current = snap.exists() ? normalizeJudge(snap.data(), id) : makeJudge(id);
+    const draft = clone(current);
+    const result = typeof mutator === "function" ? mutator(draft) : mutator;
+    const next = result ?? draft;
+    await setDoc(ref, next);
+    return next;
   };
 
   const resetAll = async () => {
     await setDoc(matchMetaRef, makeInitialMeta());
-    for (let i = 1; i <= MAX_JUDGES; i++) {
+    for (let i = 1; i <= MAX_JUDGES; i += 1) {
       await setDoc(judgeRef(i), makeJudge(i));
     }
   };
@@ -369,10 +413,13 @@ function useRoute() {
 
 const styles = {
   page: {
-    background: "#050505",
+    background: "linear-gradient(180deg, #07111f 0%, #02060d 100%)",
     color: "white",
-    minHeight: "100vh",
-    padding: 20,
+    width: "100%",
+    height: "100%",
+    minHeight: "100%",
+    padding: 28,
+    boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
   },
   frameBg: {
@@ -386,27 +433,6 @@ const styles = {
     padding: 0,
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
-  },
-  frame16x9: {
-    position: "relative",
-    background: "#061529",
-    color: "white",
-    width: "100vw",
-    height: "calc(100vw * 9 / 16)",
-    maxWidth: "calc(100vh * 16 / 9)",
-    maxHeight: "100vh",
-    aspectRatio: "16 / 9",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    border: "2px solid rgba(120,160,255,0.25)",
-    boxShadow: "0 0 40px rgba(0,0,0,0.45), 0 0 30px rgba(29,78,216,0.18) inset",
-  },
-  frameInner: {
-    position: "absolute",
-    inset: 0,
-    padding: 20,
-    boxSizing: "border-box",
-    overflow: "auto",
   },
   panel: {
     background: "#111",
@@ -427,12 +453,13 @@ const styles = {
     minWidth: 180,
   },
   button: {
-    padding: "12px 16px",
-    borderRadius: 12,
-    border: "none",
+    padding: "14px 18px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.18)",
     color: "white",
     cursor: "pointer",
     fontWeight: "bold",
+    boxShadow: "0 0 18px rgba(255,255,255,0.10), inset 0 0 12px rgba(255,255,255,0.05)",
     transition: "transform 0.08s ease, box-shadow 0.12s ease, filter 0.12s ease",
   },
   red: { background: "#b91c1c" },
@@ -443,10 +470,32 @@ const styles = {
 };
 
 function Frame16x9({ children }) {
+  const baseWidth = 1920;
+  const baseHeight = 1080;
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const recalc = () => setScale(Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight));
+    recalc();
+    window.addEventListener("resize", recalc);
+    return () => window.removeEventListener("resize", recalc);
+  }, []);
+
   return (
     <div style={styles.frameBg}>
-      <div style={styles.frame16x9}>
-        <div style={styles.frameInner}>{children}</div>
+      <div
+        style={{
+          width: baseWidth,
+          height: baseHeight,
+          position: "relative",
+          background: "linear-gradient(180deg, #07111f 0%, #02060d 100%)",
+          overflow: "hidden",
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
+          boxSizing: "border-box",
+        }}
+      >
+        {children}
       </div>
     </div>
   );
@@ -454,34 +503,36 @@ function Frame16x9({ children }) {
 
 function BrandHeaderLarge() {
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 18, marginBottom: 14 }}>
-      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 82, objectFit: "contain" }} />
-      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 82, objectFit: "contain" }} />
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 30, marginBottom: 14 }}>
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 220, maxWidth: 420, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 220, maxWidth: 420, objectFit: "contain" }} />
     </div>
   );
 }
 
 function BrandHeaderSmall() {
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, margin: "8px 0 12px" }}>
-      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 40, objectFit: "contain" }} />
-      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 40, objectFit: "contain" }} />
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 14, margin: "8px 0 12px" }}>
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 92, maxWidth: 240, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 92, maxWidth: 240, objectFit: "contain" }} />
     </div>
   );
 }
 
-function AppButton({ children, style = {}, onClick, ...props }) {
+function AppButton({ children, style = {}, onClick, feedback = "ui", ...props }) {
+  const triggerFeedback = () => {
+    if (feedback === "judge") tapFeedback();
+    else if (feedback === "ui") playButtonSound();
+  };
+
   return (
     <button
       {...props}
       onClick={(e) => {
-        tapFeedback();
+        triggerFeedback();
         onClick?.(e);
       }}
-      style={{
-        ...styles.button,
-        ...style,
-      }}
+      style={{ ...styles.button, ...style }}
       onMouseDown={(e) => {
         e.currentTarget.style.transform = "scale(0.985)";
         e.currentTarget.style.filter = "brightness(1.08)";
@@ -503,26 +554,10 @@ function AppButton({ children, style = {}, onClick, ...props }) {
 function WinnerFullScreen({ winner, zIndex = 50 }) {
   if (winner === "draw") {
     return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          zIndex,
-          background: "#3b3b3b",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          padding: "5vw",
-        }}
-      >
-        <div style={{ width: "100%", maxWidth: "92vw", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: "clamp(20px, 5vw, 56px)", fontWeight: 700, letterSpacing: "0.16em", lineHeight: 1 }}>
-            RESULTADO
-          </div>
-          <div style={{ marginTop: "2.5vh", fontSize: "clamp(42px, 13vw, 150px)", fontWeight: 900, lineHeight: 0.95, textTransform: "uppercase", wordBreak: "keep-all" }}>
-            EMPATE
-          </div>
+      <div style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
+          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>EMPATE</div>
         </div>
       </div>
     );
@@ -532,36 +567,12 @@ function WinnerFullScreen({ winner, zIndex = 50 }) {
   const isHong = winner === "hong";
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex,
-        background: isHong ? "#b91c1c" : "#1d4ed8",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        padding: "5vw",
-        animation: "winnerPulse 1.2s infinite",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: "92vw", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontSize: "clamp(20px, 5vw, 56px)", fontWeight: 700, letterSpacing: "0.16em", opacity: 0.92, lineHeight: 1 }}>
-          WINNER
-        </div>
-        <div style={{ marginTop: "2.5vh", fontSize: "clamp(48px, 15vw, 170px)", fontWeight: 900, lineHeight: 0.95, textTransform: "uppercase", wordBreak: "keep-all" }}>
-          {isHong ? "HONG" : "CHONG"}
-        </div>
+    <div style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", opacity: 0.92, lineHeight: 1 }}>WINNER</div>
+        <div style={{ marginTop: 28, fontSize: 220, fontWeight: 900, lineHeight: 0.92 }}>{isHong ? "HONG" : "CHONG"}</div>
       </div>
-
-      <style>{`
-        @keyframes winnerPulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.75; }
-          100% { opacity: 1; }
-        }
-      `}</style>
+      <style>{`@keyframes winnerPulse {0%{opacity:1;}50%{opacity:0.76;}100%{opacity:1;}}`}</style>
     </div>
   );
 }
@@ -589,6 +600,7 @@ function ScoreChoice({ selected, value, onClick, disabled }) {
         fontSize: 22,
         boxShadow: selected === value ? "0 0 18px rgba(34,197,94,0.45)" : "none",
       }}
+      type="button"
     >
       {value}
     </button>
@@ -603,6 +615,7 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
         onClick();
       }}
       disabled={disabled}
+      type="button"
       style={{
         width: "100%",
         padding: "16px 16px",
@@ -627,14 +640,6 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
   const hongZero = !!judge.pattern.hong.zero;
   const chongZero = !!judge.pattern.chong.zero;
 
-  const hongTech = judge.pattern.hong.tech || 0;
-  const hongPower = judge.pattern.hong.power || 0;
-  const hongRhythm = judge.pattern.hong.rhythm || 0;
-
-  const chongTech = judge.pattern.chong.tech || 0;
-  const chongPower = judge.pattern.chong.power || 0;
-  const chongRhythm = judge.pattern.chong.rhythm || 0;
-
   const totals = patternTotalsForJudge(judge);
 
   const toggleValue = (side, field, value) => {
@@ -647,91 +652,43 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
     onSelectValue(side, field, next);
   };
 
+  const SidePanel = ({ side, title, bg, border }) => (
+    <div style={{ ...styles.panel, background: bg, border }}>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>{title}</div>
+
+      <ZeroAbsoluteButton
+        active={judge.pattern[side].zero}
+        disabled={locked}
+        onClick={() => onToggleZeroSide(side)}
+        label={`CERO ABSOLUTO ${title}`}
+        bg={side === "hong" ? "#7f1d1d" : "#1e3a8a"}
+      />
+
+      <div style={{ marginBottom: 8 }}>Contenido técnico</div>
+      <div>{[1, 2, 3, 4, 5].map((n) => <ScoreChoice key={`${side}-tech-${n}`} selected={judge.pattern[side].tech || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "tech", n)} />)}</div>
+
+      <div style={{ margin: "12px 0 8px" }}>Poder</div>
+      <div>{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-power-${n}`} selected={judge.pattern[side].power || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "power", n)} />)}</div>
+
+      <div style={{ margin: "12px 0 8px" }}>Ritmo</div>
+      <div>{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-rhythm-${n}`} selected={judge.pattern[side].rhythm || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "rhythm", n)} />)}</div>
+
+      <div style={{ marginTop: 12, fontWeight: 900 }}>Total: {side === "hong" ? totals.hong : totals.chong}</div>
+    </div>
+  );
+
   return (
     <div style={{ ...styles.panel, background: "#07111f", border: "1px solid #17304f" }}>
-      <div style={{ fontWeight: 900, marginBottom: 16, fontSize: 28, textAlign: "center" }}>
-        JUEZ {judge.id}
-      </div>
+      <div style={{ fontWeight: 900, marginBottom: 16, fontSize: 28, textAlign: "center" }}>JUEZ {judge.id}</div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ ...styles.panel, background: "#2a0606", border: "1px solid #631010" }}>
-          <div style={{ fontWeight: 900, marginBottom: 8 }}>{HONG}</div>
-
-          <ZeroAbsoluteButton
-            active={hongZero}
-            disabled={locked}
-            onClick={() => onToggleZeroSide("hong")}
-            label="CERO ABSOLUTO HONG"
-            bg="#7f1d1d"
-          />
-
-          <div style={{ marginBottom: 8 }}>Contenido técnico</div>
-          <div>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <ScoreChoice key={`ht-${n}`} selected={hongTech} value={n} disabled={locked || hongZero} onClick={() => toggleValue("hong", "tech", n)} />
-            ))}
-          </div>
-
-          <div style={{ margin: "12px 0 8px" }}>Poder</div>
-          <div>
-            {[1, 2, 3].map((n) => (
-              <ScoreChoice key={`hp-${n}`} selected={hongPower} value={n} disabled={locked || hongZero} onClick={() => toggleValue("hong", "power", n)} />
-            ))}
-          </div>
-
-          <div style={{ margin: "12px 0 8px" }}>Ritmo</div>
-          <div>
-            {[1, 2, 3].map((n) => (
-              <ScoreChoice key={`hr-${n}`} selected={hongRhythm} value={n} disabled={locked || hongZero} onClick={() => toggleValue("hong", "rhythm", n)} />
-            ))}
-          </div>
-
-          <div style={{ marginTop: 12, fontWeight: 900 }}>Total: {totals.hong}</div>
-        </div>
-
-        <div style={{ ...styles.panel, background: "#07172f", border: "1px solid #174a9c" }}>
-          <div style={{ fontWeight: 900, marginBottom: 8 }}>{CHONG}</div>
-
-          <ZeroAbsoluteButton
-            active={chongZero}
-            disabled={locked}
-            onClick={() => onToggleZeroSide("chong")}
-            label="CERO ABSOLUTO CHONG"
-            bg="#1e3a8a"
-          />
-
-          <div style={{ marginBottom: 8 }}>Contenido técnico</div>
-          <div>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <ScoreChoice key={`ct-${n}`} selected={chongTech} value={n} disabled={locked || chongZero} onClick={() => toggleValue("chong", "tech", n)} />
-            ))}
-          </div>
-
-          <div style={{ margin: "12px 0 8px" }}>Poder</div>
-          <div>
-            {[1, 2, 3].map((n) => (
-              <ScoreChoice key={`cp-${n}`} selected={chongPower} value={n} disabled={locked || chongZero} onClick={() => toggleValue("chong", "power", n)} />
-            ))}
-          </div>
-
-          <div style={{ margin: "12px 0 8px" }}>Ritmo</div>
-          <div>
-            {[1, 2, 3].map((n) => (
-              <ScoreChoice key={`cr-${n}`} selected={chongRhythm} value={n} disabled={locked || chongZero} onClick={() => toggleValue("chong", "rhythm", n)} />
-            ))}
-          </div>
-
-          <div style={{ marginTop: 12, fontWeight: 900 }}>Total: {totals.chong}</div>
-        </div>
+        <SidePanel side="hong" title={HONG} bg="#2a0606" border="1px solid #631010" />
+        <SidePanel side="chong" title={CHONG} bg="#07172f" border="1px solid #174a9c" />
       </div>
 
-      <AppButton
-        style={{ ...styles.green, width: "100%", marginTop: 16, minHeight: 60, fontSize: 18, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }}
-        disabled={locked}
-        onClick={onSave}
-      >
-        {locked ? "Enviado" : "Enviar"}
-      </AppButton>
+      <div style={{ marginTop: 18 }}>
+        <AppButton style={styles.green} onClick={onSave}>Guardar / Enviar</AppButton>
+      </div>
     </div>
   );
 }
@@ -772,9 +729,15 @@ function QRSection({ meta }) {
       <h2>QR Conexión</h2>
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         <div style={{ textAlign: "center" }}>
+          <div style={{ marginBottom: 8 }}>Presidente</div>
+          <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
+            <QRCodeCanvas value={`${base}/president`} size={150} />
+          </div>
+        </div>
+        <div style={{ textAlign: "center" }}>
           <div style={{ marginBottom: 8 }}>Pantalla pública</div>
           <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-            <QRCodeCanvas value={`${base}/public`} size={120} />
+            <QRCodeCanvas value={`${base}/public`} size={150} />
           </div>
         </div>
 
@@ -782,7 +745,7 @@ function QRSection({ meta }) {
           <div key={n} style={{ textAlign: "center" }}>
             <div style={{ marginBottom: 8 }}>Juez {n}</div>
             <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-              <QRCodeCanvas value={`${base}/judge/${n}`} size={120} />
+              <QRCodeCanvas value={`${base}/judge/${n}`} size={150} />
             </div>
           </div>
         ))}
@@ -795,87 +758,203 @@ function Home({ navigate, meta }) {
   const judgesToShow = activeJudgeCount(meta);
 
   return (
-    <div style={styles.page}>
-      <h1>Hwarang Scoring Patterns Gups</h1>
-      <p>Elegí una pantalla:</p>
+    <Frame16x9>
+      <div style={{ ...styles.page, display: "grid", gridTemplateRows: "260px auto 1fr", alignContent: "start" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <BrandHeaderLarge />
+        </div>
 
-      <div style={styles.row}>
-        <AppButton style={styles.green} onClick={() => navigate("/president")}>Presidente</AppButton>
-        <AppButton style={styles.blue} onClick={() => navigate("/public")}>Pantalla pública</AppButton>
-        {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
-          <AppButton key={n} style={styles.red} onClick={() => navigate(`/judge/${n}`)}>Juez {n}</AppButton>
-        ))}
+        <div style={{ textAlign: "center", marginTop: -20 }}>
+          <h1 style={{ margin: 0, fontSize: 62 }}>Hwarang Scoring Patterns Gups</h1>
+          <p style={{ fontSize: 28, opacity: 0.9 }}>Elegí una pantalla</p>
+        </div>
+
+        <div style={{ ...styles.panel, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", marginTop: 20 }}>
+          <div style={styles.row}>
+            <AppButton style={{ ...styles.green, boxShadow: "0 0 20px rgba(34,197,94,0.35)" }} onClick={() => navigate("/president")}>Presidente</AppButton>
+            <AppButton style={{ ...styles.blue, boxShadow: "0 0 20px rgba(59,130,246,0.35)" }} onClick={() => navigate("/public")}>Pantalla pública</AppButton>
+            {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
+              <AppButton key={n} style={{ ...styles.red, boxShadow: "0 0 20px rgba(239,68,68,0.35)" }} onClick={() => navigate(`/judge/${n}`)}>Juez {n}</AppButton>
+            ))}
+          </div>
+        </div>
       </div>
+    </Frame16x9>
+  );
+}
 
-      <div style={{ ...styles.panel, marginTop: 16 }}>
-        <h2>Modalidad actual</h2>
-        <div style={{ fontSize: 28, fontWeight: 900 }}>FORMAS GUP</div>
+function PublicCompetitorPanel({ fighter, title, color }) {
+  return (
+    <div style={{ borderRadius: 34, background: color, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "22px 18px", minWidth: 0, boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.10)" }}>
+      <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: "0.16em", lineHeight: 1 }}>{title}</div>
+      <div style={{ marginTop: 26, fontSize: 66, fontWeight: 900, lineHeight: 0.98, textTransform: "uppercase", textAlign: "center", wordBreak: "break-word" }}>
+        {fighter.name || title}
       </div>
-
-      <QRSection meta={meta} />
+      <div style={{ marginTop: 12, fontSize: 24, fontWeight: 600, opacity: 0.95, textAlign: "center", wordBreak: "break-word" }}>
+        {fighter.club || "ACADEMIA / EQUIPO"}
+      </div>
     </div>
   );
 }
 
 function PublicScreen({ meta, navigate }) {
   const time = useClock(meta);
+  const p = meta.patternResult || makeEmptyPatternResult();
+  const { left, right } = getDisplaySides(meta, "public");
 
   return (
     <Frame16x9>
-      <AppButton style={{ ...styles.gray, position: "absolute", top: 14, left: 14, zIndex: 3 }} onClick={() => navigate("/")}>
+      <AppButton
+        style={{ ...styles.gray, position: "absolute", right: 26, bottom: 18, zIndex: 20, fontSize: 22, padding: "12px 22px", boxShadow: "0 0 18px rgba(255,255,255,0.16)" }}
+        onClick={() => navigate("/")}
+      >
         Inicio
       </AppButton>
 
-      <div style={{ position: "absolute", top: 16, left: 0, right: 0, zIndex: 4 }}>
-        <BrandHeaderLarge />
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(240px, 32%) minmax(0,1fr)", alignItems: "stretch", gap: 20, height: "100%" }}>
-        <div style={{ borderRadius: 28, background: "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)", display: "flex", justifyContent: "center", alignItems: "center", padding: "22px 18px", minWidth: 0 }}>
-          <div style={{ fontSize: "clamp(34px, 6vw, 86px)", fontWeight: 900 }}>{HONG}</div>
+      <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateRows: "190px 1fr 52px", padding: "18px 24px 10px 24px", boxSizing: "border-box" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 420px", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
+            <img src="/logo-universe.png" alt="Hwarang Universe" style={{ maxWidth: 420, maxHeight: 190, width: "auto", height: "auto", objectFit: "contain", display: "block" }} />
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "0.24em", lineHeight: 1, opacity: 0.92 }}>HWARANG SCORING</div>
+            <div style={{ marginTop: 12, fontSize: 70, fontWeight: 900, lineHeight: 1, letterSpacing: "0.04em" }}>PATTERNS</div>
+            <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800, letterSpacing: "0.10em", opacity: 0.92 }}>FORMAS GUP</div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+            <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ maxWidth: 420, maxHeight: 190, width: "auto", height: "auto", objectFit: "contain", display: "block" }} />
+          </div>
         </div>
 
-        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18 }}>
-          <div style={{ fontSize: "clamp(16px, 2vw, 24px)", letterSpacing: 4, fontWeight: 700, color: "#cfcfcf" }}>
-            HWARANG SCORING
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px 1fr", gap: 20, minHeight: 0 }}>
+          <div style={{ borderRadius: 28, background: left.color === "hong" ? "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)" : "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(14,35,86,0.98) 100%)", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch", padding: "28px 24px" }}>
+            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em" }}>{left.visualLabel}</div>
+            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95 }}>{meta[left.color]?.name || left.visualLabel}</div>
+            <div style={{ fontSize: 26, opacity: 0.92 }}>{meta[left.color]?.club || "ACADEMIA / EQUIPO"}</div>
+            <div style={{ fontSize: 190, fontWeight: 900, textAlign: "center", lineHeight: 1 }}>{left.color === "hong" ? p.hong || 0 : p.chong || 0}</div>
           </div>
 
-          <div style={{ fontSize: "clamp(22px, 3vw, 36px)", fontWeight: 900, color: "#ffffff" }}>
-            FORMAS GUP
-          </div>
-
-          <div style={{ width: "100%", borderRadius: 28, background: "#0b0b0b", border: "2px solid #1f1f1f", padding: "28px 18px", textAlign: "center", boxShadow: "0 0 30px rgba(57,255,20,0.08)", minWidth: 0 }}>
-            <div style={{ color: "#39ff14", fontSize: "clamp(56px, 9vw, 110px)", fontWeight: 900, lineHeight: 1 }}>
-              {formatTime(time)}
+          <div style={{ minHeight: 0, display: "grid", gridTemplateRows: "290px 1fr 120px", gap: 18 }}>
+            <div style={{ borderRadius: 34, background: "linear-gradient(180deg, #ffffff 0%, #dde4ec 100%)", color: "#111", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.30)" }}>
+              <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: "0.20em", lineHeight: 1 }}>TIME</div>
+              <div style={{ marginTop: 18, fontSize: 122, fontWeight: 900, lineHeight: 0.9, letterSpacing: "-0.04em" }}>{formatTime(time)}</div>
+              <div style={{ marginTop: 16, fontSize: 34, fontWeight: 900, letterSpacing: "0.08em" }}>JUECES {activeJudgeCount(meta)}</div>
             </div>
 
-            <div style={{ marginTop: 14, color: "#dddddd", fontSize: "clamp(18px, 2.2vw, 30px)", fontWeight: 900 }}>
-              {meta.phase === "finished" ? "FINALIZADO" : "COMPITIENDO"}
+            <div style={{ borderRadius: 34, background: "rgba(255,255,255,0.06)", display: "flex", justifyContent: "center", alignItems: "center", boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.08)" }}>
+              <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1, letterSpacing: "0.06em", opacity: 0.9 }}>FORMAS GUP</div>
             </div>
 
-            {time <= 15 && meta.phase !== "finished" && (
-              <div style={{ marginTop: 10, fontSize: "clamp(16px, 2vw, 28px)", fontWeight: 900, color: "#39ff14" }}>
-                JUECES PUNTUANDO
+            <div style={{ borderRadius: 24, background: "rgba(255,255,255,0.08)", display: "flex", justifyContent: "center", alignItems: "center", boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.08)" }}>
+              <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: "0.08em", textAlign: "center" }}>
+                {meta.patternResult?.completed ? "FALLO EMITIDO" : meta.status === "running" ? "EVALUANDO" : "LISTO"}
               </div>
-            )}
+            </div>
+          </div>
+
+          <div style={{ borderRadius: 28, background: right.color === "hong" ? "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)" : "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(14,35,86,0.98) 100%)", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch", padding: "28px 24px" }}>
+            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em", textAlign: "center" }}>{right.visualLabel}</div>
+            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95, textAlign: "center" }}>{meta[right.color]?.name || right.visualLabel}</div>
+            <div style={{ fontSize: 26, opacity: 0.92, textAlign: "center" }}>{meta[right.color]?.club || "ACADEMIA / EQUIPO"}</div>
+            <div style={{ fontSize: 190, fontWeight: 900, textAlign: "center", lineHeight: 1 }}>{right.color === "hong" ? p.hong || 0 : p.chong || 0}</div>
           </div>
         </div>
 
-        <div style={{ borderRadius: 28, background: "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(7,23,47,0.98) 100%)", display: "flex", justifyContent: "center", alignItems: "center", padding: "22px 18px", minWidth: 0 }}>
-          <div style={{ fontSize: "clamp(34px, 6vw, 86px)", fontWeight: 900 }}>{CHONG}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.82 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "0.08em" }}>TORNEO / FORMAS GUP</div>
         </div>
       </div>
 
-      {meta.patternResult?.completed && <WinnerFullScreen winner={meta.patternResult.winner} />}
+      {!!meta.patternResult?.completed && <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} />}
     </Frame16x9>
   );
 }
 
 function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, navigate }) {
+  meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
   const prevRunningRef = useRef(false);
   const prevFinishedRef = useRef(false);
+  const [secondsInput, setSecondsInput] = useState(String(meta.config.roundSeconds || 120));
+  const [editor, setEditor] = useState({
+    hongName: meta.hong?.name || "",
+    hongClub: meta.hong?.club || "",
+    chongName: meta.chong?.name || "",
+    chongClub: meta.chong?.club || "",
+  });
+  const editorFocusRef = useRef(false);
+  const editorDraftRef = useRef({
+    hongName: meta.hong?.name || "",
+    hongClub: meta.hong?.club || "",
+    chongName: meta.chong?.name || "",
+    chongClub: meta.chong?.club || "",
+  });
+  const currentJudges = activeJudges(meta, judges);
+  const editorSaveTimeoutRef = useRef(null);
+  const { left, right } = getDisplaySides(meta, "president");
+
+  useEffect(() => {
+    const next = {
+      hongName: meta.hong?.name || "",
+      hongClub: meta.hong?.club || "",
+      chongName: meta.chong?.name || "",
+      chongClub: meta.chong?.club || "",
+    };
+    editorDraftRef.current = next;
+    if (editorFocusRef.current) return;
+    setEditor((current) => (
+      current.hongName === next.hongName &&
+      current.hongClub === next.hongClub &&
+      current.chongName === next.chongName &&
+      current.chongClub === next.chongClub
+    ) ? current : next);
+  }, [meta.hong?.name, meta.hong?.club, meta.chong?.name, meta.chong?.club]);
+
+  const commitEditor = async (nextEditor) => {
+    const finalEditor = nextEditor || editorDraftRef.current;
+    const unchanged =
+      (meta.hong?.name || "") === finalEditor.hongName &&
+      (meta.hong?.club || "") === finalEditor.hongClub &&
+      (meta.chong?.name || "") === finalEditor.chongName &&
+      (meta.chong?.club || "") === finalEditor.chongClub;
+
+    if (unchanged) return;
+
+    await writeMeta((current) => ({
+      ...current,
+      hong: {
+        ...(current.hong || getBaseCompetitor(HONG)),
+        name: finalEditor.hongName,
+        club: finalEditor.hongClub,
+      },
+      chong: {
+        ...(current.chong || getBaseCompetitor(CHONG)),
+        name: finalEditor.chongName,
+        club: finalEditor.chongClub,
+      },
+    }));
+  };
+
+  const queueEditorCommit = (nextEditor) => {
+    if (editorSaveTimeoutRef.current) clearTimeout(editorSaveTimeoutRef.current);
+    editorSaveTimeoutRef.current = setTimeout(() => {
+      commitEditor(nextEditor);
+    }, 250);
+  };
+
+  const updateEditorField = (field, value) => {
+    setEditor((current) => {
+      const next = { ...current, [field]: value };
+      editorDraftRef.current = next;
+      queueEditorCommit(next);
+      return next;
+    });
+  };
+
+  useEffect(() => () => {
+    if (editorSaveTimeoutRef.current) clearTimeout(editorSaveTimeoutRef.current);
+  }, []);
 
   useEffect(() => {
     const isRunning = meta.status === "running" && meta.phase === "fight";
@@ -891,12 +970,6 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     }
     prevFinishedRef.current = isFinished;
   }, [meta.patternResult?.completed]);
-
-  const [secondsInput, setSecondsInput] = useState(String(meta.config.roundSeconds || 120));
-
-  useEffect(() => {
-    setSecondsInput(String(meta.config.roundSeconds || 120));
-  }, [meta.config.roundSeconds]);
 
   useEffect(() => {
     if (meta.status !== "running") return;
@@ -917,30 +990,57 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     finishByTime();
   }, [meta.status, meta.phase, time, writeMeta]);
 
+  useEffect(() => {
+    setSecondsInput(String(meta.config.roundSeconds || 120));
+  }, [meta.config.roundSeconds]);
+
   const saveConfig = async () => {
     const roundSeconds = Math.max(1, parseInt(secondsInput, 10) || 120);
 
-    await writeMeta((current) => {
-      current.config.roundSeconds = roundSeconds;
-      if (current.status === "paused") current.pausedRemaining = roundSeconds;
-      return current;
-    });
+    await writeMeta((current) => ({
+      ...current,
+      config: {
+        ...(current.config || {}),
+        roundSeconds,
+      },
+      pausedRemaining: current.status === "paused" ? roundSeconds : current.pausedRemaining,
+    }));
   };
 
   const setPatternJudgeCount = async (count) => {
-    await writeMeta((current) => {
-      current.config.patternJudges = count;
-      return current;
-    });
+    await writeMeta((current) => ({
+      ...current,
+      config: {
+        ...(current.config || {}),
+        patternJudges: count,
+      },
+    }));
   };
 
   const startTimer = async () => {
+    await commitEditor(editorDraftRef.current);
+    await saveConfig();
+
     await writeMeta((current) => {
-      if (current.phase === "finished") return current;
       if (current.status === "running") return current;
-      current.status = "running";
-      current.phaseStartedAt = Date.now();
-      return current;
+
+      const next = {
+        ...current,
+        status: "running",
+        phaseStartedAt: Date.now(),
+      };
+
+      if (current.phase === "finished") {
+        next.phase = "fight";
+        next.pausedRemaining = current.config?.roundSeconds || 120;
+        next.patternResult = {
+          ...(current.patternResult || makeEmptyPatternResult()),
+          completed: false,
+          winner: "en_curso",
+        };
+      }
+
+      return next;
     });
   };
 
@@ -975,7 +1075,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const prepareNextMatch = async () => {
-    for (let i = 1; i <= MAX_JUDGES; i++) {
+    for (let i = 1; i <= MAX_JUDGES; i += 1) {
       await writeJudge(i, () => makeJudge(i));
     }
 
@@ -1007,100 +1107,140 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     });
   };
 
-  const currentJudges = activeJudges(meta, judges);
-  const presidentWinner = meta.patternResult?.winner;
+  const updateCompetitor = async (side, field, value) => {
+    await writeMeta((current) => {
+      current[side] = current[side] || getBaseCompetitor(side === "hong" ? HONG : CHONG);
+      current[side][field] = value;
+      return current;
+    });
+  };
+
   const showPresidentWinner = !!meta.patternResult?.completed;
 
   return (
     <Frame16x9>
-      <div style={{ position: "sticky", top: 0, zIndex: 120, display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, paddingBottom: 6 }}>
-        <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
-        <AppButton style={styles.green} onClick={prepareNextMatch}>Siguiente match</AppButton>
-        <AppButton style={styles.gray} onClick={resetAll}>Reset total</AppButton>
-      </div>
-
-      <h1 style={{ margin: "0 0 16px 0", textAlign: "center", fontSize: "clamp(34px,4vw,64px)" }}>Presidente</h1>
-
-      <div style={{ ...styles.panel, marginTop: 16 }}>
-        <h2>Modalidad</h2>
-        <div style={{ fontSize: 28, fontWeight: 900 }}>FORMAS GUP</div>
-      </div>
-
-      <div style={styles.row}>
-        <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
-        <div style={styles.stat}>Jueces: <strong>{meta.config.patternJudges}</strong></div>
-        <div style={styles.stat}>
-          Estado: <strong>{meta.phase === "finished" ? "Finalizado" : meta.status === "running" ? "En marcha" : "Pausado"}</strong>
+      <div style={{ position: "absolute", inset: 0, overflow: "auto", padding: 22, boxSizing: "border-box" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 120, display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, paddingBottom: 6, background: "rgba(2,6,13,0.92)" }}>
+          <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
+          <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={prepareNextMatch}>Siguiente match</AppButton>
+          <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={resetAll}>Reset total</AppButton>
         </div>
-      </div>
 
-      <div style={{ ...styles.panel, marginTop: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
-          <div>
-            <label>Tiempo de evaluación (segundos)</label>
-            <input
-              type="number"
-              min="1"
-              value={secondsInput}
-              onChange={(e) => setSecondsInput(e.target.value)}
-              style={{ width: "100%", padding: 10, marginTop: 6, borderRadius: 10 }}
-            />
-            <div style={{ ...styles.row, marginTop: 10 }}>
-              {[60, 90, 120, 180, 300].map((s) => (
-                <AppButton key={s} style={styles.gray} onClick={() => setSecondsInput(String(s))}>
-                  {s}s
-                </AppButton>
-              ))}
-            </div>
+        <BrandHeaderLarge />
+
+        <h1 style={{ margin: "0 0 16px 0", textAlign: "center", fontSize: "clamp(34px,4vw,64px)" }}>Presidente</h1>
+
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <h2>Modalidad</h2>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>FORMAS GUP</div>
+        </div>
+
+        <div style={styles.row}>
+          <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
+          <div style={styles.stat}>Jueces: <strong>{meta.config.patternJudges}</strong></div>
+          <div style={styles.stat}>Estado: <strong>{meta.phase === "finished" ? "Finalizado" : meta.status === "running" ? "En marcha" : "Pausado"}</strong></div>
+        </div>
+
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <h2>Competidores</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {["hong", "chong"].map((side) => (
+              <div key={side} style={{ ...styles.panel, background: side === "hong" ? "#2a0606" : "#07172f", border: side === "hong" ? "1px solid #631010" : "1px solid #174a9c" }}>
+                <div style={{ fontWeight: 900, marginBottom: 10, fontSize: 22 }}>{side === "hong" ? "Hong" : "Chong"}</div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <input value={side === "hong" ? editor.hongName : editor.chongName} onFocus={() => { editorFocusRef.current = true; }} onChange={(e) => updateEditorField(side === "hong" ? "hongName" : "chongName", e.target.value)} onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }} placeholder={`Nombre ${side}`} style={{ width: "100%", padding: 12, borderRadius: 10 }} />
+                  <input value={side === "hong" ? editor.hongClub : editor.chongClub} onFocus={() => { editorFocusRef.current = true; }} onChange={(e) => updateEditorField(side === "hong" ? "hongClub" : "chongClub", e.target.value)} onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }} placeholder={`Club ${side}`} style={{ width: "100%", padding: 12, borderRadius: 10 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <h2>Cambio de lado independiente</h2>
+          <div style={styles.row}>
+            <AppButton style={meta.publicSwapSides ? styles.green : styles.gray} onClick={() => writeMeta((c) => { c.publicSwapSides = !c.publicSwapSides; return c; })}>
+              Pública: {meta.publicSwapSides ? "Invertida" : "Normal"}
+            </AppButton>
+            <AppButton style={meta.presidentSwapSides ? styles.green : styles.gray} onClick={() => writeMeta((c) => { c.presidentSwapSides = !c.presidentSwapSides; return c; })}>
+              Presidente: {meta.presidentSwapSides ? "Invertida" : "Normal"}
+            </AppButton>
           </div>
 
-          <AppButton style={styles.blue} onClick={saveConfig}>Guardar configuración</AppButton>
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ ...styles.panel, background: "#091423" }}>
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>Vista presidente</div>
+              <div>Izquierda: <strong>{left.visualLabel} - {left.name || left.visualLabel}</strong></div>
+              <div>Derecha: <strong>{right.visualLabel} - {right.name || right.visualLabel}</strong></div>
+            </div>
+            <div style={{ ...styles.panel, background: "#091423" }}>
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>Vista pública</div>
+              <div>Izquierda: <strong>{getDisplaySides(meta, "public").left.visualLabel} - {getDisplaySides(meta, "public").left.name || getDisplaySides(meta, "public").left.visualLabel}</strong></div>
+              <div>Derecha: <strong>{getDisplaySides(meta, "public").right.visualLabel} - {getDisplaySides(meta, "public").right.name || getDisplaySides(meta, "public").right.visualLabel}</strong></div>
+            </div>
+          </div>
         </div>
 
-        <div style={{ ...styles.row, marginTop: 16 }}>
-          <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 jueces</AppButton>
-          <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 jueces</AppButton>
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
+            <div>
+              <label>Tiempo de evaluación (segundos)</label>
+              <input type="number" min="1" value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6, borderRadius: 10 }} />
+              <div style={{ ...styles.row, marginTop: 10 }}>
+                {[60, 90, 120, 180, 300].map((s) => (
+                  <AppButton key={s} style={styles.gray} onClick={() => setSecondsInput(String(s))}>{s}s</AppButton>
+                ))}
+              </div>
+            </div>
+
+            <AppButton style={styles.blue} onClick={saveConfig}>Guardar configuración</AppButton>
+          </div>
+
+          <div style={{ ...styles.row, marginTop: 16 }}>
+            <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 jueces</AppButton>
+            <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 jueces</AppButton>
+          </div>
+
+          <div style={{ ...styles.row, marginTop: 16 }}>
+            <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={startTimer}>Iniciar</AppButton>
+            <AppButton style={{ ...styles.amber, boxShadow: "0 0 18px rgba(245,158,11,0.35)" }} onClick={pauseTimer}>Pausar</AppButton>
+            <AppButton style={{ ...styles.blue, boxShadow: "0 0 18px rgba(59,130,246,0.35)" }} disabled={p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}>
+              Cerrar evaluación
+            </AppButton>
+          </div>
         </div>
 
-        <div style={{ ...styles.row, marginTop: 16 }}>
-          <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={startTimer}>Iniciar</AppButton>
-          <AppButton style={{ ...styles.amber, boxShadow: "0 0 18px rgba(245,158,11,0.35)" }} onClick={pauseTimer}>Pausar</AppButton>
-          <AppButton style={{ ...styles.blue, boxShadow: "0 0 18px rgba(59,130,246,0.35)" }} disabled={p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}>
-            Cerrar evaluación
-          </AppButton>
+        <QRSection meta={meta} />
+
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <h2>Fallo arbitral Formas</h2>
+          <div style={styles.row}>
+            <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>Ganador Rojo</AppButton>
+            <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>Ganador Azul</AppButton>
+            <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>Empate</AppButton>
+          </div>
         </div>
+
+        <div style={{ ...styles.panel, marginTop: 16 }}>
+          <h2>Resultado Formas Gup</h2>
+          <div style={styles.row}>
+            <div style={{ ...styles.stat, background: "#2a0606", border: "1px solid #631010" }}>Hong total: <strong>{p.hong}</strong></div>
+            <div style={{ ...styles.stat, background: "#07172f", border: "1px solid #174a9c" }}>Chong total: <strong>{p.chong}</strong></div>
+            <div style={styles.stat}>Jueces enviados: <strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <h2>Tarjetas de jueces (solo lectura)</h2>
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+            {currentJudges.map((j) => (
+              <JudgePatternReadOnlyCard key={j.id} judge={j} />
+            ))}
+          </div>
+        </div>
+
+        {showPresidentWinner && <WinnerFullScreen winner={meta.patternResult.winner} zIndex={100} />}
       </div>
-
-      <QRSection meta={meta} />
-
-      <div style={{ ...styles.panel, marginTop: 16 }}>
-        <h2>Fallo arbitral Formas</h2>
-        <div style={styles.row}>
-          <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>Ganador Rojo</AppButton>
-          <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>Ganador Azul</AppButton>
-          <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>Empate</AppButton>
-        </div>
-      </div>
-
-      <div style={{ ...styles.panel, marginTop: 16 }}>
-        <h2>Resultado Formas Gup</h2>
-        <div style={styles.row}>
-          <div style={{ ...styles.stat, background: "#2a0606", border: "1px solid #631010" }}>Hong total: <strong>{p.hong}</strong></div>
-          <div style={{ ...styles.stat, background: "#07172f", border: "1px solid #174a9c" }}>Chong total: <strong>{p.chong}</strong></div>
-          <div style={styles.stat}>Jueces enviados: <strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <h2>Tarjetas de jueces (solo lectura)</h2>
-        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-          {currentJudges.map((j) => (
-            <JudgePatternReadOnlyCard key={j.id} judge={j} />
-          ))}
-        </div>
-      </div>
-
-      {showPresidentWinner && <WinnerFullScreen winner={presidentWinner} zIndex={100} />}
     </Frame16x9>
   );
 }
@@ -1120,7 +1260,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   if (judgeId > activeJudgeCount(meta)) {
     return (
       <div style={styles.page}>
-        <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
+        <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
         <BrandHeaderSmall />
         <h1>Juez {judgeId}</h1>
         <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
@@ -1184,7 +1324,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
 
   return (
     <div style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
-      <AppButton style={styles.gray} onClick={() => navigate("/")}>Inicio</AppButton>
+      <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
 
       <BrandHeaderSmall />
 
@@ -1196,12 +1336,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <JudgePatternColorPanel
-          judge={judgePreview}
-          onSelectValue={selectPatternValue}
-          onSave={savePattern}
-          onToggleZeroSide={togglePatternZeroSide}
-        />
+        <JudgePatternColorPanel judge={judgePreview} onSelectValue={selectPatternValue} onSave={savePattern} onToggleZeroSide={togglePatternZeroSide} />
       </div>
 
       {showJudgeWinner && <WinnerFullScreen winner={judgeWinner} />}
@@ -1213,41 +1348,57 @@ export default function App() {
   const { meta, judges, writeMeta, writeJudge, resetAll } = useFightData();
   const { path, navigate } = useRoute();
 
+  useEffect(() => {
+    if (!meta) return;
+    if (meta.mode !== "pattern") {
+      writeMeta((current) => {
+        current.mode = "pattern";
+        current.config.roundSeconds = current.config.roundSeconds || 120;
+        if (!current.pausedRemaining) current.pausedRemaining = current.config.roundSeconds;
+        current.publicSwapSides = !!current.publicSwapSides;
+        current.presidentSwapSides = !!current.presidentSwapSides;
+        current.hong = current.hong || getBaseCompetitor(HONG);
+        current.chong = current.chong || getBaseCompetitor(CHONG);
+        return current;
+      });
+    }
+  }, [meta, writeMeta]);
+
   if (!meta) {
-    return <div style={styles.page}>Cargando...</div>;
+    return <><GlobalAppStyle /><div style={styles.page}>Cargando...</div></>;
   }
 
   if (path === "/president") {
     return (
-      <PresidentScreen
+      <><GlobalAppStyle /><PresidentScreen
         meta={meta}
         judges={judges}
         writeMeta={writeMeta}
         writeJudge={writeJudge}
         resetAll={resetAll}
         navigate={navigate}
-      />
+      /></>
     );
   }
 
   if (path === "/public") {
-    return <PublicScreen meta={meta} navigate={navigate} />;
+    return <><GlobalAppStyle /><PublicScreen meta={meta} navigate={navigate} /></>;
   }
 
   if (path.startsWith("/judge/")) {
     const n = Number(path.split("/")[2]);
     if (n >= 1 && n <= MAX_JUDGES) {
       return (
-        <JudgeScreen
+        <><GlobalAppStyle /><JudgeScreen
           meta={meta}
           judges={judges}
           writeJudge={writeJudge}
           judgeId={n}
           navigate={navigate}
-        />
+        /></>
       );
     }
   }
 
-  return <Home navigate={navigate} meta={meta} />;
+  return <><GlobalAppStyle /><Home navigate={navigate} meta={meta} /></>;
 }

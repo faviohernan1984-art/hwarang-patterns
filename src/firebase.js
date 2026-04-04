@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, doc, collection } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -10,11 +10,12 @@ const firebaseConfig = {
   appId: "1:309913008618:web:ae3277153f88a054641a93"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
 
-// referencias principales
-export const matchMetaRef = doc(db, "matches", "meta");
-export const judgesColRef = collection(db, "judges");
-export const judgeRef = (id) => doc(db, "judges", String(id));
+// PATTERNS separado
+export const matchMetaRef = doc(db, "matches", "patterns");
+export const judgesColRef = collection(db, "matches", "patterns", "judges");
+export const judgeRef = (id) =>
+  doc(db, "matches", "patterns", "judges", String(id));
