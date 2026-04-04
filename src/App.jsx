@@ -418,14 +418,15 @@ const styles = {
     width: "100%",
     height: "100%",
     minHeight: "100%",
-    padding: 28,
+    padding: 20,
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
   },
   frameBg: {
     background: "#020814",
     color: "white",
-    minHeight: "100vh",
+    height: "100vh",
+    overflow: "hidden",
     width: "100%",
     display: "flex",
     alignItems: "center",
@@ -475,7 +476,11 @@ function Frame16x9({ children }) {
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    const recalc = () => setScale(Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight));
+    const recalc = () => {
+      const scaleX = window.innerWidth / baseWidth;
+      const scaleY = window.innerHeight / baseHeight;
+      setScale(Math.min(scaleX, scaleY));
+    };
     recalc();
     window.addEventListener("resize", recalc);
     return () => window.removeEventListener("resize", recalc);
@@ -504,8 +509,8 @@ function Frame16x9({ children }) {
 function BrandHeaderLarge() {
   return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 30, marginBottom: 14 }}>
-      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 220, maxWidth: 420, objectFit: "contain" }} />
-      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 220, maxWidth: 420, objectFit: "contain" }} />
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 180, maxWidth: 360, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 180, maxWidth: 360, objectFit: "contain" }} />
     </div>
   );
 }
@@ -513,8 +518,8 @@ function BrandHeaderLarge() {
 function BrandHeaderSmall() {
   return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 14, margin: "8px 0 12px" }}>
-      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 92, maxWidth: 240, objectFit: "contain" }} />
-      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 92, maxWidth: 240, objectFit: "contain" }} />
+      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 78, maxWidth: 220, objectFit: "contain" }} />
+      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 78, maxWidth: 220, objectFit: "contain" }} />
     </div>
   );
 }
@@ -556,7 +561,7 @@ function WinnerFullScreen({ winner, zIndex = 50 }) {
     return (
       <div style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
         <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
+          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
           <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>EMPATE</div>
         </div>
       </div>
@@ -805,13 +810,13 @@ function PublicScreen({ meta, navigate }) {
   return (
     <Frame16x9>
       <AppButton
-        style={{ ...styles.gray, position: "absolute", right: 26, bottom: 18, zIndex: 20, fontSize: 22, padding: "12px 22px", boxShadow: "0 0 18px rgba(255,255,255,0.16)" }}
+        style={{ ...styles.gray, position: "absolute", right: 26, bottom: 18, zIndex: 20, fontSize: 18, padding: "10px 18px", opacity: 0.78, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }}
         onClick={() => navigate("/")}
       >
         Inicio
       </AppButton>
 
-      <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateRows: "190px 1fr 52px", padding: "18px 24px 10px 24px", boxSizing: "border-box" }}>
+      <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateRows: "190px 1fr 52px", padding: "12px 18px 8px 18px", boxSizing: "border-box" }}>
         <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 420px", alignItems: "center" }}>
           <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
             <img src="/logo-universe.png" alt="Hwarang Universe" style={{ maxWidth: 420, maxHeight: 190, width: "auto", height: "auto", objectFit: "contain", display: "block" }} />
@@ -828,9 +833,9 @@ function PublicScreen({ meta, navigate }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px 1fr", gap: 20, minHeight: 0 }}>
           <div style={{ borderRadius: 28, background: left.color === "hong" ? "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)" : "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(14,35,86,0.98) 100%)", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch", padding: "28px 24px" }}>
-            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em" }}>{left.visualLabel}</div>
-            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95 }}>{meta[left.color]?.name || left.visualLabel}</div>
-            <div style={{ fontSize: 26, opacity: 0.92 }}>{meta[left.color]?.club || "ACADEMIA / EQUIPO"}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em", textAlign: "center" }}>{left.visualLabel}</div>
+            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95, textAlign: "center" }}>{meta[left.color]?.name || left.visualLabel}</div>
+            <div style={{ fontSize: 26, opacity: 0.92, textAlign: "center" }}>{meta[left.color]?.club || "ACADEMIA / EQUIPO"}</div>
             <div style={{ fontSize: 190, fontWeight: 900, textAlign: "center", lineHeight: 1 }}>{left.color === "hong" ? p.hong || 0 : p.chong || 0}</div>
           </div>
 
@@ -1119,8 +1124,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
   return (
     <Frame16x9>
-      <div style={{ position: "absolute", inset: 0, overflow: "auto", padding: 22, boxSizing: "border-box" }}>
-        <div style={{ position: "sticky", top: 0, zIndex: 120, display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, paddingBottom: 6, background: "rgba(2,6,13,0.92)" }}>
+      <div style={{ position: "absolute", inset: 0, overflow: "auto", padding: 16, boxSizing: "border-box" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 120, display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, paddingBottom: 4, background: "rgba(2,6,13,0.92)" }}>
           <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
           <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={prepareNextMatch}>Siguiente match</AppButton>
           <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={resetAll}>Reset total</AppButton>
@@ -1128,7 +1133,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
         <BrandHeaderLarge />
 
-        <h1 style={{ margin: "0 0 16px 0", textAlign: "center", fontSize: "clamp(34px,4vw,64px)" }}>Presidente</h1>
+        <h1 style={{ margin: "0 0 16px 0", textAlign: "center", fontSize: "clamp(30px,3.4vw,54px)" }}>Presidente</h1>
 
         <div style={{ ...styles.panel, marginTop: 16 }}>
           <h2>Modalidad</h2>
