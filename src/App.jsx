@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
+import "./PublicScreen.css";
 
 const HONG = "Hong";
 const CHONG = "Chong";
@@ -556,13 +557,13 @@ function AppButton({ children, style = {}, onClick, feedback = "ui", ...props })
   );
 }
 
-function WinnerFullScreen({ winner, zIndex = 50 }) {
+function WinnerFullScreen({ winner, zIndex = 50, publicPatterns = false }) {
   if (winner === "draw") {
     return (
-      <div style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
+      <div className={publicPatterns ? "patterns-public-result patterns-public-result--draw" : undefined} style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
         <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
-          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>EMPATE</div>
+          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>{publicPatterns ? "DECISION" : "RESULTADO"}</div>
+          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>{publicPatterns ? "DRAW" : "EMPATE"}</div>
         </div>
       </div>
     );
@@ -572,7 +573,7 @@ function WinnerFullScreen({ winner, zIndex = 50 }) {
   const isHong = winner === "hong";
 
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
+    <div className={publicPatterns ? `patterns-public-result patterns-public-result--${winner}` : undefined} style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
       <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", opacity: 0.92, lineHeight: 1 }}>WINNER</div>
         <div style={{ marginTop: 28, fontSize: 220, fontWeight: 900, lineHeight: 0.92 }}>{isHong ? "HONG" : "CHONG"}</div>
@@ -788,90 +789,140 @@ function Home({ navigate, meta }) {
   );
 }
 
-function PublicCompetitorPanel({ fighter, title, color }) {
+function PublicCompetitorPanel({ fighter, title, side, total, position }) {
   return (
-    <div style={{ borderRadius: 34, background: color, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "22px 18px", minWidth: 0, boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.10)" }}>
-      <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: "0.16em", lineHeight: 1 }}>{title}</div>
-      <div style={{ marginTop: 26, fontSize: 66, fontWeight: 900, lineHeight: 0.98, textTransform: "uppercase", textAlign: "center", wordBreak: "break-word" }}>
-        {fighter.name || title}
+    <section className={`patterns-public__competitor patterns-public__competitor--${side} patterns-public__competitor--${position}`}>
+      <div className="patterns-public__side-glow" />
+      <div className="patterns-public__side-label">{title}</div>
+      <div className="patterns-public__identity">
+        <div className="patterns-public__name">{fighter.name || title}</div>
+        <div className="patterns-public__club">
+          {fighter.club || "ACADEMY / TEAM"}
+        </div>
       </div>
-      <div style={{ marginTop: 12, fontSize: 24, fontWeight: 600, opacity: 0.95, textAlign: "center", wordBreak: "break-word" }}>
-        {fighter.club || "ACADEMIA / EQUIPO"}
+      <div className="patterns-public__score-block">
+        <div className="patterns-public__score-caption">TOTAL</div>
+        <div className="patterns-public__score">{total}</div>
       </div>
-    </div>
+    </section>
   );
 }
 
-function PublicScreen({ meta, navigate }) {
+function PublicScreen({ meta, judges, navigate }) {
   const time = useClock(meta);
   const p = meta.patternResult || makeEmptyPatternResult();
   const { left, right } = getDisplaySides(meta, "public");
+  const publicJudges = activeJudges(meta, judges);
+  const evaluationStatus = meta.patternResult?.completed || meta.phase === "finished"
+    ? "FINISHED"
+    : meta.status === "running"
+      ? "EVALUATING"
+      : meta.status === "paused"
+          && meta.phase === "fight"
+          && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds)
+        ? "PAUSED"
+        : "READY";
 
   return (
-    <Frame16x9>
-      <AppButton
-        style={{ ...styles.gray, position: "absolute", right: 26, bottom: 18, zIndex: 20, fontSize: 18, padding: "10px 18px", opacity: 0.78, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }}
+    <main className="patterns-public">
+      <button
+        type="button"
+        className="patterns-public__home"
         onClick={() => navigate("/")}
+        aria-label="Home"
       >
-        Inicio
-      </AppButton>
+        <span aria-hidden="true">⌂</span>
+      </button>
 
-      <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateRows: "190px 1fr 52px", padding: "12px 18px 8px 18px", boxSizing: "border-box" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 420px", alignItems: "center" }}>
-          <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
-            <img src="/logo-universe.png" alt="Hwarang Universe" style={{ maxWidth: 420, maxHeight: 190, width: "auto", height: "auto", objectFit: "contain", display: "block" }} />
+      <div className="patterns-public__ambient patterns-public__ambient--red" />
+      <div className="patterns-public__ambient patterns-public__ambient--blue" />
+      <header className="patterns-public__header">
+          <div className="patterns-public__live-block">
+            <div className="patterns-public__screen-label">PUBLIC TV SCREEN</div>
+            <div className="patterns-public__live-status">
+              <span aria-hidden="true" />
+              <strong>LIVE</strong>
+            </div>
           </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "0.24em", lineHeight: 1, opacity: 0.92 }}>HWARANG SCORING</div>
-            <div style={{ marginTop: 12, fontSize: 70, fontWeight: 900, lineHeight: 1, letterSpacing: "0.04em" }}>PATTERNS</div>
-            <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800, letterSpacing: "0.10em", opacity: 0.92 }}>FORMAS GUP</div>
+          <div className="patterns-public__title-lockup">
+            <div className="patterns-public__eyebrow">HWARANG SCORING UNIVERSE™</div>
+            <div className="patterns-public__product-stage">
+              <span className="patterns-public__title-scan" aria-hidden="true" />
+              <div className="patterns-public__product">PATTERNS</div>
+            </div>
+            <div className="patterns-public__discipline">GUP MATCH</div>
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-            <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ maxWidth: 420, maxHeight: 190, width: "auto", height: "auto", objectFit: "contain", display: "block" }} />
-          </div>
-        </div>
+      </header>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px 1fr", gap: 20, minHeight: 0 }}>
-          <div style={{ borderRadius: 28, background: left.color === "hong" ? "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)" : "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(14,35,86,0.98) 100%)", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch", padding: "28px 24px" }}>
-            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em", textAlign: "center" }}>{left.visualLabel}</div>
-            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95, textAlign: "center" }}>{meta[left.color]?.name || left.visualLabel}</div>
-            <div style={{ fontSize: 26, opacity: 0.92, textAlign: "center" }}>{meta[left.color]?.club || "ACADEMIA / EQUIPO"}</div>
-            <div style={{ fontSize: 190, fontWeight: 900, textAlign: "center", lineHeight: 1 }}>{left.color === "hong" ? p.hong || 0 : p.chong || 0}</div>
-          </div>
+      <div className="patterns-public__arena">
+          <PublicCompetitorPanel
+            fighter={meta[left.color]}
+            title={left.visualLabel}
+            side={left.color}
+            total={left.color === "hong" ? p.hong || 0 : p.chong || 0}
+            position="left"
+          />
 
-          <div style={{ minHeight: 0, display: "grid", gridTemplateRows: "290px 1fr 120px", gap: 18 }}>
-            <div style={{ borderRadius: 34, background: "linear-gradient(180deg, #ffffff 0%, #dde4ec 100%)", color: "#111", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.30)" }}>
-              <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: "0.20em", lineHeight: 1 }}>TIME</div>
-              <div style={{ marginTop: 18, fontSize: 122, fontWeight: 900, lineHeight: 0.9, letterSpacing: "-0.04em" }}>{formatTime(time)}</div>
-              <div style={{ marginTop: 16, fontSize: 34, fontWeight: 900, letterSpacing: "0.08em" }}>JUECES {activeJudgeCount(meta)}</div>
+          <section className="patterns-public__center">
+            <div className="patterns-public__timer-shell">
+              <div className="patterns-public__timer-label">TIME</div>
+              <div className="patterns-public__timer">{formatTime(time)}</div>
             </div>
 
-            <div style={{ borderRadius: 34, background: "rgba(255,255,255,0.06)", display: "flex", justifyContent: "center", alignItems: "center", boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.08)" }}>
-              <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1, letterSpacing: "0.06em", opacity: 0.9 }}>FORMAS GUP</div>
+            <div
+              className={`patterns-public__status patterns-public__status--${
+                meta.patternResult?.completed
+                  ? "complete"
+                  : meta.status === "running"
+                    ? "running"
+                    : "ready"
+              }`}
+            >
+              {evaluationStatus}
             </div>
 
-            <div style={{ borderRadius: 24, background: "rgba(255,255,255,0.08)", display: "flex", justifyContent: "center", alignItems: "center", boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.08)" }}>
-              <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: "0.08em", textAlign: "center" }}>
-                {meta.patternResult?.completed ? "FALLO EMITIDO" : meta.status === "running" ? "EVALUANDO" : "LISTO"}
+            <div className="patterns-public__judges">
+              <div className="patterns-public__judges-title">
+                JUDGES <strong>{activeJudgeCount(meta)}</strong>
+              </div>
+              <div
+                className="patterns-public__judge-grid"
+                style={{ "--patterns-judge-count": publicJudges.length }}
+              >
+                {publicJudges.map((judge) => {
+                  const sent = !!judge.pattern?.sent;
+                  return (
+                    <div
+                      className={`patterns-public__judge-indicator ${sent ? "patterns-public__judge-indicator--sent" : "patterns-public__judge-indicator--pending"}`}
+                      key={judge.id}
+                    >
+                      <span>J{judge.id}</span>
+                      <i aria-hidden="true" />
+                      <small>{sent ? "SENT" : "PENDING"}</small>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          </section>
 
-          <div style={{ borderRadius: 28, background: right.color === "hong" ? "linear-gradient(180deg, rgba(185,28,28,0.95) 0%, rgba(80,7,7,0.98) 100%)" : "linear-gradient(180deg, rgba(29,78,216,0.95) 0%, rgba(14,35,86,0.98) 100%)", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch", padding: "28px 24px" }}>
-            <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "0.12em", textAlign: "center" }}>{right.visualLabel}</div>
-            <div style={{ fontSize: 70, fontWeight: 900, lineHeight: 0.95, textAlign: "center" }}>{meta[right.color]?.name || right.visualLabel}</div>
-            <div style={{ fontSize: 26, opacity: 0.92, textAlign: "center" }}>{meta[right.color]?.club || "ACADEMIA / EQUIPO"}</div>
-            <div style={{ fontSize: 190, fontWeight: 900, textAlign: "center", lineHeight: 1 }}>{right.color === "hong" ? p.hong || 0 : p.chong || 0}</div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.82 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "0.08em" }}>TORNEO / FORMAS GUP</div>
-        </div>
+          <PublicCompetitorPanel
+            fighter={meta[right.color]}
+            title={right.visualLabel}
+            side={right.color}
+            total={right.color === "hong" ? p.hong || 0 : p.chong || 0}
+            position="right"
+          />
       </div>
 
-      {!!meta.patternResult?.completed && <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} />}
-    </Frame16x9>
+      <footer className="patterns-public__footer">
+          <span />
+          <strong>HWARANG SCORING UNIVERSE™ · OFFICIAL PATTERNS SYSTEM</strong>
+          <span />
+      </footer>
+
+      {!!meta.patternResult?.completed && <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} publicPatterns />}
+    </main>
   );
 }
 
@@ -1387,7 +1438,7 @@ export default function App() {
   }
 
   if (path === "/public") {
-    return <><GlobalAppStyle /><PublicScreen meta={meta} navigate={navigate} /></>;
+    return <><GlobalAppStyle /><PublicScreen meta={meta} judges={judges} navigate={navigate} /></>;
   }
 
   if (path.startsWith("/judge/")) {
