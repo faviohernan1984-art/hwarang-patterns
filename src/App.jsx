@@ -12,6 +12,7 @@ import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
+import "./JudgeBinary.css";
 
 const HONG = "Hong";
 const CHONG = "Chong";
@@ -164,6 +165,7 @@ function makeJudge(id) {
       hong: { tech: 0, power: 0, rhythm: 0, zero: false },
       chong: { tech: 0, power: 0, rhythm: 0, zero: false },
       sent: false,
+      binary: { vote: null, sent: false },
     },
   };
 }
@@ -186,6 +188,14 @@ function normalizeJudge(raw, id) {
         ...base.pattern.chong,
         ...(raw.pattern?.chong || {}),
       },
+      binary: {
+        ...base.pattern.binary,
+        ...(raw.pattern?.binary || {}),
+        vote: raw.pattern?.binary?.vote === "hong" || raw.pattern?.binary?.vote === "chong"
+          ? raw.pattern.binary.vote
+          : null,
+        sent: !!raw.pattern?.binary?.sent,
+      },
     },
   };
 }
@@ -206,6 +216,7 @@ function makeInitialMeta() {
     config: {
       roundSeconds: 120,
       patternJudges: 3,
+      scoringMode: "binary",
     },
     round: 1,
     phase: "fight",
@@ -225,13 +236,17 @@ function makeInitialMeta() {
 function ensureMetaShape(raw) {
   const base = makeInitialMeta();
   const current = raw || {};
+  const config = {
+    ...base.config,
+    ...(current.config || {}),
+  };
+  if (raw && !Object.prototype.hasOwnProperty.call(current.config || {}, "scoringMode")) {
+    delete config.scoringMode;
+  }
   return {
     ...base,
     ...current,
-    config: {
-      ...base.config,
-      ...(current.config || {}),
-    },
+    config,
     hong: {
       ...base.hong,
       ...(current.hong || {}),
@@ -245,6 +260,10 @@ function ensureMetaShape(raw) {
       ...(current.patternResult || {}),
     },
   };
+}
+
+function getScoringMode(meta) {
+  return meta?.config?.scoringMode === "points" ? "points" : "binary";
 }
 
 function activeJudgeCount(meta) {
@@ -754,6 +773,43 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
   );
 }
 
+function JudgePatternBinaryPanel({ judgeId, vote, sent, onSelect, onSend }) {
+  const renderSide = (side, label) => {
+    const selected = vote === side;
+    return (
+      <button
+        type="button"
+        disabled={sent}
+        className={`patterns-judge-binary__side patterns-judge-binary__side--${side}${selected ? " is-selected" : ""}`}
+        onClick={() => {
+          tapFeedback({ vibrateMs: 45 });
+          onSelect(side);
+        }}
+      >
+        <div className="patterns-judge-binary__identity">{label}</div>
+        <div className="patterns-judge-binary__mark">{selected ? "✓" : "—"}</div>
+        <div className="patterns-judge-binary__select-label">{selected ? "SELECTED" : "SELECT"}</div>
+      </button>
+    );
+  };
+
+  return (
+    <div className="patterns-judge-binary">
+      <div className="patterns-judge-binary__judge">JUEZ {judgeId}</div>
+      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>
+        {sent ? "SENT" : "BINARY · SELECT WINNER"}
+      </div>
+      <div className="patterns-judge-binary__joystick">
+        {renderSide("hong", "HONG")}
+        {renderSide("chong", "CHONG")}
+      </div>
+      <div className="patterns-judge-binary__send-wrap">
+        <AppButton className="patterns-judge-binary__send" style={vote && !sent ? styles.green : styles.gray} disabled={!vote || sent} onClick={onSend}>SEND</AppButton>
+      </div>
+    </div>
+  );
+}
+
 function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide }) {
   const locked = !!judge.pattern.sent;
   const hongZero = !!judge.pattern.hong.zero;
@@ -1069,6 +1125,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     chongClub: meta.chong?.club || "",
   });
   const currentJudges = activeJudges(meta, judges);
+  const scoringMode = getScoringMode(meta);
+  const scoringModeLocked = judges.some((judge) => !!judge.pattern?.sent || !!judge.pattern?.binary?.sent);
   const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
   const editorSaveTimeoutRef = useRef(null);
   const { left, right } = getDisplaySides(meta, "president");
@@ -1196,6 +1254,18 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
       config: {
         ...(current.config || {}),
         patternJudges: count,
+      },
+    }));
+  };
+
+  const setScoringMode = async (mode) => {
+    if (scoringModeLocked) return;
+    const nextMode = mode === "binary" ? "binary" : "points";
+    await writeMeta((current) => ({
+      ...current,
+      config: {
+        ...(current.config || {}),
+        scoringMode: nextMode,
       },
     }));
   };
@@ -1344,7 +1414,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
           <div className="patterns-president__hud-cell patterns-president__hud-status">
             <span>STATUS</span>
             <strong>{presidentStatus}</strong>
-            <small>POINTS · GUP MATCH</small>
+            <small>{scoringMode.toUpperCase()} · GUP MATCH</small>
           </div>
           <div className={`patterns-president__hud-cell patterns-president__hud-timer${meta.status === "running" ? " is-running" : ""}`}>
             <span>EVALUATION TIME</span>
@@ -1406,6 +1476,11 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
               <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
               <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
               <AppButton style={styles.blue} onClick={saveConfig}>SAVE CONFIG</AppButton>
+              <div className="patterns-president__scoring-mode">
+                <span>SCORING MODE</span>
+                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--points${scoringMode === "points" ? " is-active" : ""}`} disabled={scoringModeLocked} onClick={() => setScoringMode("points")}>POINTS</AppButton>
+                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--binary${scoringMode === "binary" ? " is-active" : ""}`} disabled={scoringModeLocked} onClick={() => setScoringMode("binary")}>BINARY</AppButton>
+              </div>
             </div>
           </div>
 
@@ -1516,10 +1591,17 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
 
   const judge = judges.find((j) => j.id === judgeId) || makeJudge(judgeId);
   const [localPattern, setLocalPattern] = useState(() => clone(judge.pattern));
+  const [localBinaryVote, setLocalBinaryVote] = useState(() => judge.pattern.binary.vote);
+  const [localBinarySent, setLocalBinarySent] = useState(() => !!judge.pattern.binary.sent);
 
   useEffect(() => {
     setLocalPattern(clone(judge.pattern));
   }, [judgeId, JSON.stringify(judge.pattern)]);
+
+  useEffect(() => {
+    setLocalBinaryVote(judge.pattern.binary.vote);
+    setLocalBinarySent(!!judge.pattern.binary.sent);
+  }, [judgeId, judge.pattern.binary.vote, judge.pattern.binary.sent]);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -1550,39 +1632,66 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   };
 
   const savePattern = async () => {
-    const patternToSave = {
-      hong: { ...localPattern.hong },
-      chong: { ...localPattern.chong },
-      sent: true,
-    };
-
-    await writeJudge(judgeId, (j) => {
-      j.pattern = patternToSave;
+    const nextJudge = await writeJudge(judgeId, (j) => {
+      j.pattern = {
+        ...j.pattern,
+        hong: { ...localPattern.hong },
+        chong: { ...localPattern.chong },
+        sent: true,
+      };
       return j;
     });
 
-    setLocalPattern(patternToSave);
+    setLocalPattern(clone(nextJudge.pattern));
+  };
+
+  const saveBinaryVote = async () => {
+    if (!localBinaryVote || localBinarySent) return;
+    const nextJudge = await writeJudge(judgeId, (j) => {
+      if (j.pattern?.binary?.sent) return j;
+      j.pattern = {
+        ...j.pattern,
+        binary: {
+          vote: localBinaryVote,
+          sent: true,
+        },
+      };
+      return j;
+    });
+    setLocalBinaryVote(nextJudge.pattern.binary.vote);
+    setLocalBinarySent(!!nextJudge.pattern.binary.sent);
   };
 
   const judgeWinner = meta.patternResult?.winner;
   const showJudgeWinner = !!meta.patternResult?.completed;
   const judgePreview = { ...judge, pattern: localPattern };
+  const scoringMode = getScoringMode(meta);
 
   return (
-    <div style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
-      <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
+    <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : undefined} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
+      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : undefined} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
 
-      <BrandHeaderSmall />
+      <div className={scoringMode === "binary" ? "patterns-judge-page__brand" : undefined}><BrandHeaderSmall /></div>
 
-      <h1>Juez {judgeId}</h1>
+      <h1 className={scoringMode === "binary" ? "patterns-judge-page__title" : undefined}>Juez {judgeId}</h1>
 
-      <div style={styles.row}>
-        <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
-        <div style={styles.stat}>Modalidad: <strong>FORMAS GUP</strong></div>
+      <div className={scoringMode === "binary" ? "patterns-judge-page__stats" : undefined} style={styles.row}>
+        <div className={scoringMode === "binary" ? "patterns-judge-page__stat" : undefined} style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
+        <div className={scoringMode === "binary" ? "patterns-judge-page__stat" : undefined} style={styles.stat}>Modalidad: <strong>FORMAS GUP</strong></div>
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <JudgePatternColorPanel judge={judgePreview} onSelectValue={selectPatternValue} onSave={savePattern} onToggleZeroSide={togglePatternZeroSide} />
+      <div className={scoringMode === "binary" ? "patterns-judge-page__content" : undefined} style={{ marginTop: 16 }}>
+        {scoringMode === "binary" ? (
+          <JudgePatternBinaryPanel
+            judgeId={judgeId}
+            vote={localBinaryVote}
+            sent={localBinarySent}
+            onSelect={setLocalBinaryVote}
+            onSend={saveBinaryVote}
+          />
+        ) : (
+          <JudgePatternColorPanel judge={judgePreview} onSelectValue={selectPatternValue} onSave={savePattern} onToggleZeroSide={togglePatternZeroSide} />
+        )}
       </div>
 
       {showJudgeWinner && <WinnerFullScreen winner={judgeWinner} />}

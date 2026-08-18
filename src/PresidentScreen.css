@@ -330,7 +330,14 @@
 }
 
 .patterns-president__presets { grid-template-columns: repeat(5, 1fr); }
-.patterns-president__settings-actions { grid-template-columns: 1fr 1fr 1.25fr; margin-top: 8px; }
+.patterns-president__settings-actions { grid-template-columns: 0.8fr 0.8fr 1fr 2.4fr; margin-top: 8px; }
+.patterns-president__scoring-mode { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 6px; align-items: center; }
+.patterns-president__scoring-mode > span { color: rgba(255, 255, 255, 0.72); font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-align: center; }
+.patterns-president__scoring-option--points { background: #12331f !important; border-color: rgba(34, 197, 94, 0.4) !important; }
+.patterns-president__scoring-option--points.is-active { background: #15803d !important; border-color: #4ade80 !important; box-shadow: 0 0 13px rgba(34, 197, 94, 0.42), inset 0 0 10px rgba(255, 255, 255, 0.08) !important; }
+.patterns-president__scoring-option--binary { background: #281044 !important; border-color: rgba(168, 85, 247, 0.55) !important; }
+.patterns-president__scoring-option--binary.is-active { background: #7e22ce !important; border-color: #c084fc !important; box-shadow: 0 0 14px rgba(168, 85, 247, 0.58), inset 0 0 10px rgba(255, 255, 255, 0.1) !important; }
+.patterns-president__scoring-option:disabled { opacity: 0.42; cursor: not-allowed !important; filter: saturate(0.55); }
 .patterns-president__match-control > div { grid-template-columns: 1fr 1fr 1.5fr; height: 82px; align-items: stretch; }
 
 .patterns-president__match-control button span,
