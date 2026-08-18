@@ -1,0 +1,580 @@
+.patterns-president {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  display: grid;
+  grid-template-rows: 64px 128px 160px 160px minmax(0, 1fr) 210px 118px;
+  gap: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at 50% -12%, rgba(45, 75, 115, 0.15), transparent 34%),
+    #000;
+  color: #fff;
+}
+
+.patterns-president__header {
+  position: relative;
+  z-index: 120;
+  min-width: 0;
+  height: 64px;
+  padding: 6px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(260px, 1fr);
+  gap: 13px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(12, 16, 23, 0.94), rgba(2, 4, 8, 0.98));
+  box-shadow: inset 0 -1px 0 rgba(245, 197, 66, 0.08), 0 8px 28px rgba(0, 0, 0, 0.42);
+  box-sizing: border-box;
+}
+
+.patterns-president__actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, auto);
+  gap: 9px;
+  align-items: center;
+}
+
+.patterns-president__action {
+  min-height: 40px !important;
+  height: 40px;
+  padding: 0 18px !important;
+  border-radius: 8px !important;
+  font-family: "Orbitron", Arial, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.32) !important;
+  transition: transform 0.08s ease, filter 0.12s ease, box-shadow 0.12s ease !important;
+}
+
+.patterns-president__action--home {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.patterns-president__action--next {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 14px rgba(34, 197, 94, 0.22) !important;
+}
+
+.patterns-president__action--reset {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 14px rgba(220, 38, 38, 0.24) !important;
+}
+
+.patterns-president__action--swap {
+  border-color: rgba(192, 132, 252, 0.42) !important;
+  background: linear-gradient(180deg, #6d28a8, #3b1268) !important;
+  color: #f7edff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 13px rgba(126, 34, 206, 0.3) !important;
+}
+
+.patterns-president__action--active {
+  border-color: rgba(216, 180, 254, 0.72) !important;
+  background: linear-gradient(180deg, #8b3fc7, #531889) !important;
+  filter: brightness(1.16);
+  box-shadow: inset 0 0 12px rgba(216, 180, 254, 0.18), 0 0 16px rgba(168, 85, 247, 0.48) !important;
+}
+
+.patterns-president__action:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(0.4);
+}
+
+.patterns-president__brand {
+  min-width: 0;
+  justify-self: end;
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  font-family: "Orbitron", Arial, sans-serif;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.patterns-president__brand span {
+  color: #e6bf55;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.22em;
+  text-shadow: 0 0 8px rgba(245, 197, 66, 0.3);
+}
+
+.patterns-president__brand strong {
+  color: #fff;
+  font-size: 24px;
+  font-style: italic;
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.7), 0 0 16px rgba(61, 139, 255, 0.28);
+  transform: skewX(-8deg);
+}
+
+.patterns-president__brand small {
+  color: #e6bf55;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.18em;
+}
+
+.patterns-president__hud,
+.patterns-president__competitors,
+.patterns-president__configuration,
+.patterns-president__judge-band,
+.patterns-president__bottom-band {
+  min-width: 0;
+  min-height: 0;
+}
+
+.patterns-president__hud {
+  display: grid;
+  grid-template-columns: 1.1fr 2.2fr 1.1fr;
+  gap: 8px;
+}
+
+.patterns-president__hud-cell,
+.patterns-president__panel,
+.patterns-president__aggregate,
+.patterns-president__secondary {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(17, 22, 30, 0.94), rgba(3, 5, 9, 0.98));
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.025), 0 7px 24px rgba(0, 0, 0, 0.34);
+}
+
+.patterns-president__hud-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: "Orbitron", Arial, sans-serif;
+}
+
+.patterns-president__hud-cell > span {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.patterns-president__hud-cell > small {
+  margin-top: 5px;
+  color: #d9b44a;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.patterns-president__hud-status > strong,
+.patterns-president__hud-judges > strong {
+  margin-top: 8px;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.07em;
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
+}
+
+.patterns-president__hud-timer {
+  background: linear-gradient(180deg, rgba(13, 17, 23, 0.98), #020304);
+}
+
+.patterns-president__hud-timer > strong {
+  margin-top: 4px;
+  color: #7df9ff;
+  font-family: "Orbitron", Arial, sans-serif;
+  font-size: 70px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 8px rgba(125, 249, 255, 0.35), 0 0 24px rgba(125, 249, 255, 0.12);
+}
+
+.patterns-president__hud-timer.is-running {
+  box-shadow: inset 0 0 18px rgba(255, 210, 64, 0.12), 0 0 14px rgba(255, 210, 64, 0.1);
+}
+
+.patterns-president__hud-timer.is-running > strong {
+  color: #ffd84d;
+  text-shadow: 0 0 8px rgba(255, 216, 77, 0.45), 0 0 24px rgba(255, 216, 77, 0.14);
+}
+
+.patterns-president__competitors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.patterns-president__competitor {
+  min-width: 0;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-rows: 29px minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid;
+  border-radius: 10px;
+  font-family: "Orbitron", Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.patterns-president__competitor--hong {
+  border-color: rgba(255, 70, 70, 0.48);
+  background: linear-gradient(135deg, rgba(177, 16, 25, 0.76), rgba(45, 2, 5, 0.92) 48%, #030303 100%);
+  box-shadow: inset 0 0 28px rgba(255, 0, 0, 0.17), 0 0 16px rgba(255, 0, 0, 0.1);
+}
+
+.patterns-president__competitor--chong {
+  border-color: rgba(65, 135, 255, 0.5);
+  background: linear-gradient(135deg, rgba(12, 74, 190, 0.78), rgba(2, 23, 69, 0.94) 48%, #030303 100%);
+  box-shadow: inset 0 0 28px rgba(0, 102, 255, 0.18), 0 0 16px rgba(0, 102, 255, 0.1);
+}
+
+.patterns-president__competitor > strong {
+  align-self: center;
+  justify-self: center;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.patterns-president__competitor-inputs {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.patterns-president__competitor input {
+  width: 100%;
+  height: 50px;
+  padding: 0 16px;
+  border: 2px solid;
+  border-radius: 50px;
+  outline: none;
+  background: rgba(245, 247, 250, 0.96);
+  color: #080b10;
+  font-family: "Orbitron", Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.patterns-president__competitor--hong input { border-color: #ff4d4d; }
+.patterns-president__competitor--chong input { border-color: #4d9aff; }
+
+.patterns-president__configuration {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.patterns-president__panel {
+  padding: 10px;
+  overflow: hidden;
+  box-sizing: border-box;
+  font-family: "Orbitron", Arial, sans-serif;
+}
+
+.patterns-president__panel h2 {
+  margin: 0 0 9px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+.patterns-president__settings-main {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.patterns-president__settings-main > input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid rgba(125, 249, 255, 0.38);
+  border-radius: 7px;
+  background: #05080c;
+  color: #bafcff;
+  font-family: "Orbitron", Arial, sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  text-align: center;
+  text-shadow: 0 0 9px rgba(125, 249, 255, 0.48);
+  box-shadow: inset 0 0 12px rgba(125, 249, 255, 0.06);
+}
+
+.patterns-president__presets,
+.patterns-president__settings-actions,
+.patterns-president__match-control > div {
+  display: grid;
+  gap: 6px;
+}
+
+.patterns-president__presets { grid-template-columns: repeat(5, 1fr); }
+.patterns-president__settings-actions { grid-template-columns: 1fr 1fr 1.25fr; margin-top: 8px; }
+.patterns-president__match-control > div { grid-template-columns: 1fr 1fr 1.5fr; height: 82px; align-items: stretch; }
+
+.patterns-president__match-control button span,
+.patterns-president__action span {
+  margin-right: 4px;
+  font-size: 1.08em;
+  line-height: 1;
+}
+
+.patterns-president__settings button,
+.patterns-president__match-control button {
+  min-height: 36px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  font-family: "Orbitron", Arial, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.patterns-president__match-control button {
+  font-size: 13px !important;
+}
+
+.patterns-president__presets .patterns-president__preset {
+  color: #fff !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.2);
+}
+
+.patterns-president__presets .patterns-president__preset.is-active {
+  border-color: rgba(125, 249, 255, 0.72) !important;
+  background: linear-gradient(180deg, #16566a, #0a2b38) !important;
+  color: #d9feff !important;
+  box-shadow: inset 0 0 10px rgba(125, 249, 255, 0.15), 0 0 12px rgba(125, 249, 255, 0.28) !important;
+}
+
+.patterns-president__judge-band {
+  grid-row: 6;
+  display: grid;
+  grid-template-columns: repeat(var(--patterns-president-judges), minmax(0, 1fr));
+  gap: 8px;
+}
+
+.patterns-president__judge {
+  min-width: 0;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr) 18px;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(14, 18, 25, 0.96), rgba(2, 4, 7, 0.99));
+  font-family: "Orbitron", Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.patterns-president__judge.is-sent {
+  border-color: rgba(245, 197, 66, 0.36);
+  box-shadow: inset 0 0 20px rgba(245, 197, 66, 0.055), 0 0 12px rgba(245, 197, 66, 0.1);
+}
+
+.patterns-president__judge-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.patterns-president__judge-heading > strong {
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.patterns-president__judge-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #757d89;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.patterns-president__judge-heading i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #626976;
+  box-shadow: 0 0 7px rgba(98, 105, 118, 0.42);
+}
+
+.patterns-president__judge.is-sent .patterns-president__judge-heading > span { color: #f5c542; }
+.patterns-president__judge.is-sent .patterns-president__judge-heading i { background: #dff68a; box-shadow: 0 0 10px rgba(223, 246, 138, 0.8); }
+
+.patterns-president__judge-scores {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.patterns-president__judge-scores > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.patterns-president__judge-scores .is-hong { background: linear-gradient(135deg, rgba(160, 10, 18, 0.64), rgba(40, 1, 4, 0.9)); }
+.patterns-president__judge-scores .is-chong { background: linear-gradient(135deg, rgba(8, 65, 170, 0.68), rgba(1, 17, 55, 0.92)); }
+.patterns-president__judge-scores span { font-size: 11px; font-weight: 900; letter-spacing: 0.08em; }
+.patterns-president__judge-scores strong { margin-top: 8px; font-size: 40px; line-height: 1; }
+.patterns-president__judge > small { overflow: hidden; color: #f5c542; font-size: 8px; font-weight: 900; line-height: 18px; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+
+.patterns-president__bottom-band {
+  grid-row: 7;
+  height: 118px;
+  align-self: end;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 8px;
+}
+
+.patterns-president__aggregate,
+.patterns-president__secondary {
+  min-height: 0;
+  padding: 8px;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-family: "Orbitron", Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.patterns-president__aggregate { grid-template-columns: auto 1fr 1fr 1fr; }
+.patterns-president__secondary { grid-template-columns: auto 1fr 1fr 0.8fr auto; }
+
+.patterns-president__aggregate {
+  border-color: rgba(245, 197, 66, 0.16);
+  box-shadow: inset 0 0 18px rgba(245, 197, 66, 0.035), 0 7px 24px rgba(0, 0, 0, 0.34);
+}
+
+.patterns-president__secondary {
+  border-color: rgba(255, 255, 255, 0.045);
+  background: linear-gradient(180deg, rgba(12, 15, 20, 0.88), rgba(2, 3, 5, 0.94));
+}
+
+.patterns-president__aggregate > span,
+.patterns-president__secondary > span {
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  writing-mode: horizontal-tb;
+  transform: none;
+}
+
+.patterns-president__aggregate > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.patterns-president__aggregate > .is-hong { background: rgba(145, 10, 18, 0.3); }
+.patterns-president__aggregate > .is-chong { background: rgba(8, 57, 145, 0.32); }
+.patterns-president__aggregate small { color: rgba(255, 255, 255, 0.62); font-size: 9px; font-weight: 900; letter-spacing: 0.08em; }
+.patterns-president__aggregate strong { margin-top: 4px; font-size: 30px; line-height: 1; }
+
+.patterns-president__secondary button,
+.patterns-president__secondary summary {
+  min-height: 34px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  font-family: "Orbitron", Arial, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+}
+
+.patterns-president__secondary details { position: static; }
+
+.patterns-president__secondary summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(245, 197, 66, 0.25);
+  background: rgba(20, 17, 8, 0.9);
+  color: #f5c542;
+  cursor: pointer;
+  list-style: none;
+}
+
+.patterns-president__qr-overlay {
+  position: absolute;
+  inset: 84px 12px 12px;
+  z-index: 150;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid rgba(245, 197, 66, 0.3);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.98);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+}
+
+.patterns-president__secondary .patterns-president__qr-back {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: 118px;
+  height: 38px;
+  padding: 0 15px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(245, 197, 66, 0.38);
+  border-radius: 7px !important;
+  background: linear-gradient(180deg, rgba(38, 32, 15, 0.98), rgba(10, 8, 3, 0.98));
+  color: #f5c542;
+  font-family: "Orbitron", Arial, sans-serif;
+  font-size: 11px !important;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  box-shadow: 0 0 14px rgba(245, 197, 66, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.patterns-president__secondary .patterns-president__qr-back:active {
+  transform: scale(0.96);
+  filter: brightness(1.2);
+}
+
+@media (max-width: 1200px) {
+  .patterns-president__action { padding-inline: 10px !important; font-size: 11px !important; }
+  .patterns-president__brand span { font-size: 8px; }
+  .patterns-president__brand strong { font-size: 16px; }
+  .patterns-president__hud-timer > strong { font-size: 58px; }
+  .patterns-president__judge { padding: 7px; }
+}

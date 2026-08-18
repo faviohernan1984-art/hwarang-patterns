@@ -11,6 +11,7 @@ import {
 import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import "./PublicScreen.css";
+import "./PresidentScreen.css";
 
 const HONG = "Hong";
 const CHONG = "Chong";
@@ -129,6 +130,25 @@ function GlobalAppStyle() {
       }
       input, button, textarea, select {
         font-family: inherit;
+      }
+
+      @keyframes hwarangLineFlow {
+        0% { background-position: 0% 50%; opacity: 0.5; }
+        50% { background-position: 100% 50%; opacity: 0.9; }
+        100% { background-position: 0% 50%; opacity: 0.5; }
+      }
+
+      @keyframes winnerEnter {
+        0% { opacity: 0; transform: scale(0.72) translateY(24px); filter: brightness(2.2) blur(6px); }
+        60% { opacity: 1; transform: scale(1.08) translateY(0); filter: brightness(1.7) blur(0); }
+        100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+      }
+
+      @keyframes winnerPulsePro {
+        0% { transform: scale(1); filter: brightness(1); }
+        20% { transform: scale(1.06); filter: brightness(1.35); }
+        30% { transform: scale(1.02); filter: brightness(1.1); }
+        100% { transform: scale(1); filter: brightness(1); }
       }
     `}</style>
   );
@@ -557,13 +577,106 @@ function AppButton({ children, style = {}, onClick, feedback = "ui", ...props })
   );
 }
 
-function WinnerFullScreen({ winner, zIndex = 50, publicPatterns = false }) {
+function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "public", onClose }) {
+  if (combatClone) {
+    if (winner !== "hong" && winner !== "chong" && winner !== "draw") return null;
+
+    const getColor = () => {
+      if (winner === "hong") return "#ff1a1a";
+      if (winner === "chong") return "#0602e0";
+      return "#fff200";
+    };
+
+    const getText = () => {
+      if (winner === "hong") return "HONG WINNER";
+      if (winner === "chong") return "CHONG WINNER";
+      return "DRAW";
+    };
+
+    const color = getColor();
+
+    return (
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "rgba(0,0,0,0.90)",
+        }}
+      >
+        <div style={{ textAlign: "center", width: "100%", transform: "translateY(-50px)" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 50 }}>
+            <div
+              style={{
+                color,
+                fontWeight: 600,
+                fontSize: "clamp(20px, 2.2vw, 30px)",
+                letterSpacing: "0.32em",
+                WebkitTextStroke: "0.3px rgba(255,255,255,0.25)",
+                textShadow: `0 0 4px ${color}, 0 0 10px ${color}66`,
+                opacity: 0.9,
+              }}
+            >
+              HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>™</span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                width: "330px",
+                height: 2,
+                background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.85), transparent)",
+                backgroundSize: "200% 100%",
+                animation: "hwarangLineFlow 3.5s ease-in-out infinite",
+                boxShadow: "0 0 10px rgba(255,255,255,0.8)",
+                opacity: 0.9,
+              }}
+            />
+          </div>
+          <div style={{ transform: "translateY(-50px)" }} />
+          <div
+            style={{
+              color,
+              fontWeight: 900,
+              fontSize: "clamp(60px, 10vw, 160px)",
+              WebkitTextStroke: `1px ${color}`,
+              letterSpacing: "0.08em",
+              textShadow: `0 0 4px ${color}, 0 0 10px ${color}55`,
+              animation: "winnerEnter 0.6s ease-out, winnerPulsePro 1.6s ease-in-out 0.6s infinite",
+            }}
+          >
+            {getText()}
+          </div>
+
+          {mode === "president" && (
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                bottom: -470,
+                transform: "translateX(-50%)",
+                zIndex: zIndex + 1,
+              }}
+            >
+              <AppButton style={styles.gray} onClick={onClose}>Close</AppButton>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (winner === "draw") {
     return (
-      <div className={publicPatterns ? "patterns-public-result patterns-public-result--draw" : undefined} style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
+      <div style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
         <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>{publicPatterns ? "DECISION" : "RESULTADO"}</div>
-          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>{publicPatterns ? "DRAW" : "EMPATE"}</div>
+          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
+          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>EMPATE</div>
         </div>
       </div>
     );
@@ -573,7 +686,7 @@ function WinnerFullScreen({ winner, zIndex = 50, publicPatterns = false }) {
   const isHong = winner === "hong";
 
   return (
-    <div className={publicPatterns ? `patterns-public-result patterns-public-result--${winner}` : undefined} style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
+    <div style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
       <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", opacity: 0.92, lineHeight: 1 }}>WINNER</div>
         <div style={{ marginTop: 28, fontSize: 220, fontWeight: 900, lineHeight: 0.92 }}>{isHong ? "HONG" : "CHONG"}</div>
@@ -824,7 +937,8 @@ function PublicScreen({ meta, judges, navigate }) {
         : "READY";
 
   return (
-    <main className="patterns-public">
+    <>
+      <main className="patterns-public">
       <button
         type="button"
         className="patterns-public__home"
@@ -921,8 +1035,16 @@ function PublicScreen({ meta, judges, navigate }) {
           <span />
       </footer>
 
-      {!!meta.patternResult?.completed && <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} publicPatterns />}
-    </main>
+      </main>
+
+      {!!meta.patternResult?.completed && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
+          <Frame16x9>
+            <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} combatClone />
+          </Frame16x9>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -947,6 +1069,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     chongClub: meta.chong?.club || "",
   });
   const currentJudges = activeJudges(meta, judges);
+  const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
   const editorSaveTimeoutRef = useRef(null);
   const { left, right } = getDisplaySides(meta, "president");
 
@@ -1026,6 +1149,10 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     }
     prevFinishedRef.current = isFinished;
   }, [meta.patternResult?.completed]);
+
+  useEffect(() => {
+    if (meta.patternResult?.completed) setHidePresidentWinner(false);
+  }, [meta.patternResult?.completed, meta.patternResult?.winner]);
 
   useEffect(() => {
     if (meta.status !== "running") return;
@@ -1172,130 +1299,184 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const showPresidentWinner = !!meta.patternResult?.completed;
+  const presidentStatus = meta.patternResult?.completed || meta.phase === "finished"
+    ? "FINISHED"
+    : meta.status === "running"
+      ? "EVALUATING"
+      : meta.status === "paused"
+          && meta.phase === "fight"
+          && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds)
+        ? "PAUSED"
+        : "READY";
 
   return (
     <Frame16x9>
-      <div style={{ position: "absolute", inset: 0, overflow: "auto", padding: 16, boxSizing: "border-box" }}>
-        <div style={{ position: "sticky", top: 0, zIndex: 120, display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, paddingBottom: 4, background: "rgba(2,6,13,0.92)" }}>
-          <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
-          <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={prepareNextMatch}>Siguiente match</AppButton>
-          <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={resetAll}>Reset total</AppButton>
-        </div>
+      <div className="patterns-president">
+        <header className="patterns-president__header">
+          <nav className="patterns-president__actions" aria-label="President controls">
+            <AppButton className="patterns-president__action patterns-president__action--home" style={styles.gray} onClick={() => navigate("/")}><span aria-hidden="true">⌂</span> HOME</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--next" style={styles.green} onClick={prepareNextMatch}><span aria-hidden="true">→</span> NEXT</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} onClick={resetAll}><span aria-hidden="true">↻</span> RESET</AppButton>
+            <AppButton
+              className={`patterns-president__action patterns-president__action--swap${meta.publicSwapSides ? " patterns-president__action--active" : ""}`}
+              style={styles.purple}
+              onClick={() => writeMeta((c) => { c.publicSwapSides = !c.publicSwapSides; return c; })}
+            >
+              <span aria-hidden="true">⇄</span> SWAP PUBLIC
+            </AppButton>
+            <AppButton
+              className={`patterns-president__action patterns-president__action--swap${meta.presidentSwapSides ? " patterns-president__action--active" : ""}`}
+              style={styles.purple}
+              onClick={() => writeMeta((c) => { c.presidentSwapSides = !c.presidentSwapSides; return c; })}
+            >
+              <span aria-hidden="true">⇄</span> SWAP PRESIDENT
+            </AppButton>
+          </nav>
 
-        <BrandHeaderLarge />
+          <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Match">
+            <span>HWARANG SCORING UNIVERSE™</span>
+            <strong>PATTERNS</strong>
+            <small>GUP MATCH</small>
+          </div>
+        </header>
 
-        <h1 style={{ margin: "0 0 16px 0", textAlign: "center", fontSize: "clamp(30px,3.4vw,54px)" }}>Presidente</h1>
+        <section className="patterns-president__hud">
+          <div className="patterns-president__hud-cell patterns-president__hud-status">
+            <span>STATUS</span>
+            <strong>{presidentStatus}</strong>
+            <small>POINTS · GUP MATCH</small>
+          </div>
+          <div className={`patterns-president__hud-cell patterns-president__hud-timer${meta.status === "running" ? " is-running" : ""}`}>
+            <span>EVALUATION TIME</span>
+            <strong>{formatTime(time)}</strong>
+          </div>
+          <div className="patterns-president__hud-cell patterns-president__hud-judges">
+            <span>JUDGES</span>
+            <strong>{p.sent} / {activeJudgeCount(meta)}</strong>
+            <small>SENT</small>
+          </div>
+        </section>
 
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <h2>Modalidad</h2>
-          <div style={{ fontSize: 28, fontWeight: 900 }}>FORMAS GUP</div>
-        </div>
-
-        <div style={styles.row}>
-          <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
-          <div style={styles.stat}>Jueces: <strong>{meta.config.patternJudges}</strong></div>
-          <div style={styles.stat}>Estado: <strong>{meta.phase === "finished" ? "Finalizado" : meta.status === "running" ? "En marcha" : "Pausado"}</strong></div>
-        </div>
-
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <h2>Competidores</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {["hong", "chong"].map((side) => (
-              <div key={side} style={{ ...styles.panel, background: side === "hong" ? "#2a0606" : "#07172f", border: side === "hong" ? "1px solid #631010" : "1px solid #174a9c" }}>
-                <div style={{ fontWeight: 900, marginBottom: 10, fontSize: 22 }}>{side === "hong" ? "Hong" : "Chong"}</div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  <input value={side === "hong" ? editor.hongName : editor.chongName} onFocus={() => { editorFocusRef.current = true; }} onChange={(e) => updateEditorField(side === "hong" ? "hongName" : "chongName", e.target.value)} onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }} placeholder={`Nombre ${side}`} style={{ width: "100%", padding: 12, borderRadius: 10 }} />
-                  <input value={side === "hong" ? editor.hongClub : editor.chongClub} onFocus={() => { editorFocusRef.current = true; }} onChange={(e) => updateEditorField(side === "hong" ? "hongClub" : "chongClub", e.target.value)} onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }} placeholder={`Club ${side}`} style={{ width: "100%", padding: 12, borderRadius: 10 }} />
+        <section className="patterns-president__competitors">
+          {[left, right].map((fighter) => {
+            const side = fighter.color;
+            return (
+              <div className={`patterns-president__competitor patterns-president__competitor--${side}`} key={side}>
+                <strong>{fighter.visualLabel} DATA</strong>
+                <div className="patterns-president__competitor-inputs">
+                  <input
+                    value={side === "hong" ? editor.hongName : editor.chongName}
+                    onFocus={() => { editorFocusRef.current = true; }}
+                    onChange={(e) => updateEditorField(side === "hong" ? "hongName" : "chongName", e.target.value)}
+                    onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }}
+                    placeholder="NAME"
+                  />
+                  <input
+                    value={side === "hong" ? editor.hongClub : editor.chongClub}
+                    onFocus={() => { editorFocusRef.current = true; }}
+                    onChange={(e) => updateEditorField(side === "hong" ? "hongClub" : "chongClub", e.target.value)}
+                    onBlur={async () => { editorFocusRef.current = false; await commitEditor(editorDraftRef.current); }}
+                    placeholder="ACADEMY / TEAM"
+                  />
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+            );
+          })}
+        </section>
 
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <h2>Cambio de lado independiente</h2>
-          <div style={styles.row}>
-            <AppButton style={meta.publicSwapSides ? styles.green : styles.gray} onClick={() => writeMeta((c) => { c.publicSwapSides = !c.publicSwapSides; return c; })}>
-              Pública: {meta.publicSwapSides ? "Invertida" : "Normal"}
-            </AppButton>
-            <AppButton style={meta.presidentSwapSides ? styles.green : styles.gray} onClick={() => writeMeta((c) => { c.presidentSwapSides = !c.presidentSwapSides; return c; })}>
-              Presidente: {meta.presidentSwapSides ? "Invertida" : "Normal"}
-            </AppButton>
-          </div>
-
-          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div style={{ ...styles.panel, background: "#091423" }}>
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Vista presidente</div>
-              <div>Izquierda: <strong>{left.visualLabel} - {left.name || left.visualLabel}</strong></div>
-              <div>Derecha: <strong>{right.visualLabel} - {right.name || right.visualLabel}</strong></div>
-            </div>
-            <div style={{ ...styles.panel, background: "#091423" }}>
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Vista pública</div>
-              <div>Izquierda: <strong>{getDisplaySides(meta, "public").left.visualLabel} - {getDisplaySides(meta, "public").left.name || getDisplaySides(meta, "public").left.visualLabel}</strong></div>
-              <div>Derecha: <strong>{getDisplaySides(meta, "public").right.visualLabel} - {getDisplaySides(meta, "public").right.name || getDisplaySides(meta, "public").right.visualLabel}</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
-            <div>
-              <label>Tiempo de evaluación (segundos)</label>
-              <input type="number" min="1" value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6, borderRadius: 10 }} />
-              <div style={{ ...styles.row, marginTop: 10 }}>
-                {[60, 90, 120, 180, 300].map((s) => (
-                  <AppButton key={s} style={styles.gray} onClick={() => setSecondsInput(String(s))}>{s}s</AppButton>
+        <section className="patterns-president__configuration">
+          <div className="patterns-president__panel patterns-president__settings">
+            <h2>EVALUATION SETTINGS</h2>
+            <div className="patterns-president__settings-main">
+              <input type="number" min="1" value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} aria-label="Evaluation time in seconds" />
+              <div className="patterns-president__presets">
+                {[60, 90, 120, 180, 300].map((seconds) => (
+                  <AppButton
+                    key={seconds}
+                    className={`patterns-president__preset${String(secondsInput) === String(seconds) ? " is-active" : ""}`}
+                    style={styles.gray}
+                    onClick={() => setSecondsInput(String(seconds))}
+                  >
+                    {seconds}
+                  </AppButton>
                 ))}
               </div>
             </div>
-
-            <AppButton style={styles.blue} onClick={saveConfig}>Guardar configuración</AppButton>
+            <div className="patterns-president__settings-actions">
+              <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
+              <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
+              <AppButton style={styles.blue} onClick={saveConfig}>SAVE CONFIG</AppButton>
+            </div>
           </div>
 
-          <div style={{ ...styles.row, marginTop: 16 }}>
-            <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 jueces</AppButton>
-            <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 jueces</AppButton>
+          <div className="patterns-president__panel patterns-president__match-control">
+            <h2>MATCH CONTROL</h2>
+            <div>
+              <AppButton style={styles.green} onClick={startTimer}><span aria-hidden="true">▶</span> START</AppButton>
+              <AppButton style={styles.amber} onClick={pauseTimer}><span aria-hidden="true">Ⅱ</span> PAUSE</AppButton>
+              <AppButton style={styles.blue} disabled={p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
+            </div>
+          </div>
+        </section>
+
+        <section className="patterns-president__judge-band" style={{ "--patterns-president-judges": currentJudges.length }}>
+          {currentJudges.map((judge) => {
+            const totals = patternTotalsForJudge(judge);
+            const sent = !!judge.pattern?.sent;
+            return (
+              <article className={`patterns-president__judge${sent ? " is-sent" : " is-pending"}`} key={judge.id}>
+                <div className="patterns-president__judge-heading">
+                  <strong>JUDGE {judge.id}</strong>
+                  <span><i aria-hidden="true" />{sent ? "SENT" : "PENDING"}</span>
+                </div>
+                <div className="patterns-president__judge-scores">
+                  <div className="is-hong"><span>HONG</span><strong>{totals.hong}</strong></div>
+                  <div className="is-chong"><span>CHONG</span><strong>{totals.chong}</strong></div>
+                </div>
+                <small>{judge.pattern?.hong?.zero ? "HONG ABSOLUTE ZERO" : ""}{judge.pattern?.hong?.zero && judge.pattern?.chong?.zero ? " · " : ""}{judge.pattern?.chong?.zero ? "CHONG ABSOLUTE ZERO" : ""}</small>
+              </article>
+            );
+          })}
+        </section>
+
+        <section className="patterns-president__bottom-band">
+          <div className="patterns-president__aggregate">
+            <span>AGGREGATE RESULT</span>
+            <div className="is-hong"><small>HONG TOTAL</small><strong>{p.hong}</strong></div>
+            <div className="is-chong"><small>CHONG TOTAL</small><strong>{p.chong}</strong></div>
+            <div><small>JUDGES SENT</small><strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
           </div>
 
-          <div style={{ ...styles.row, marginTop: 16 }}>
-            <AppButton style={{ ...styles.green, boxShadow: "0 0 18px rgba(34,197,94,0.35)" }} onClick={startTimer}>Iniciar</AppButton>
-            <AppButton style={{ ...styles.amber, boxShadow: "0 0 18px rgba(245,158,11,0.35)" }} onClick={pauseTimer}>Pausar</AppButton>
-            <AppButton style={{ ...styles.blue, boxShadow: "0 0 18px rgba(59,130,246,0.35)" }} disabled={p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}>
-              Cerrar evaluación
-            </AppButton>
+          <div className="patterns-president__secondary">
+            <span>FORCED DECISION</span>
+            <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
+            <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
+            <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
+            <details>
+              <summary>QR ACCESS</summary>
+              <div className="patterns-president__qr-overlay">
+                <button
+                  type="button"
+                  className="patterns-president__qr-back"
+                  onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+                >
+                  <span aria-hidden="true">←</span> BACK
+                </button>
+                <QRSection meta={meta} />
+              </div>
+            </details>
           </div>
-        </div>
+        </section>
 
-        <QRSection meta={meta} />
-
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <h2>Fallo arbitral Formas</h2>
-          <div style={styles.row}>
-            <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>Ganador Rojo</AppButton>
-            <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>Ganador Azul</AppButton>
-            <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>Empate</AppButton>
-          </div>
-        </div>
-
-        <div style={{ ...styles.panel, marginTop: 16 }}>
-          <h2>Resultado Formas Gup</h2>
-          <div style={styles.row}>
-            <div style={{ ...styles.stat, background: "#2a0606", border: "1px solid #631010" }}>Hong total: <strong>{p.hong}</strong></div>
-            <div style={{ ...styles.stat, background: "#07172f", border: "1px solid #174a9c" }}>Chong total: <strong>{p.chong}</strong></div>
-            <div style={styles.stat}>Jueces enviados: <strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <h2>Tarjetas de jueces (solo lectura)</h2>
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-            {currentJudges.map((j) => (
-              <JudgePatternReadOnlyCard key={j.id} judge={j} />
-            ))}
-          </div>
-        </div>
-
-        {showPresidentWinner && <WinnerFullScreen winner={meta.patternResult.winner} zIndex={100} />}
+        {showPresidentWinner && !hidePresidentWinner && (
+          <WinnerFullScreen
+            winner={meta.patternResult.winner}
+            zIndex={100}
+            combatClone
+            mode="president"
+            onClose={() => setHidePresidentWinner(true)}
+          />
+        )}
       </div>
     </Frame16x9>
   );
