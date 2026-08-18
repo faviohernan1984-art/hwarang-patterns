@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
+import { binarySummary } from "./binarySummary";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
 import "./JudgeBinary.css";
@@ -773,7 +774,7 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
   );
 }
 
-function JudgePatternBinaryPanel({ judgeId, vote, sent, onSelect, onSend }) {
+function JudgePatternBinaryPanel({ vote, sent, onSelect, onSend }) {
   const renderSide = (side, label) => {
     const selected = vote === side;
     return (
@@ -795,10 +796,8 @@ function JudgePatternBinaryPanel({ judgeId, vote, sent, onSelect, onSend }) {
 
   return (
     <div className="patterns-judge-binary">
-      <div className="patterns-judge-binary__judge">JUEZ {judgeId}</div>
-      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>
-        {sent ? "SENT" : "BINARY · SELECT WINNER"}
-      </div>
+      <div className="patterns-judge-binary__band">BINARY · GUP</div>
+      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : "SELECT WINNER"}</div>
       <div className="patterns-judge-binary__joystick">
         {renderSide("hong", "HONG")}
         {renderSide("chong", "CHONG")}
@@ -958,7 +957,7 @@ function Home({ navigate, meta }) {
   );
 }
 
-function PublicCompetitorPanel({ fighter, title, side, total, position }) {
+function PublicCompetitorPanel({ fighter, title, side, total, position, scoreCaption = "TOTAL" }) {
   return (
     <section className={`patterns-public__competitor patterns-public__competitor--${side} patterns-public__competitor--${position}`}>
       <div className="patterns-public__side-glow" />
@@ -970,7 +969,7 @@ function PublicCompetitorPanel({ fighter, title, side, total, position }) {
         </div>
       </div>
       <div className="patterns-public__score-block">
-        <div className="patterns-public__score-caption">TOTAL</div>
+        <div className="patterns-public__score-caption">{scoreCaption}</div>
         <div className="patterns-public__score">{total}</div>
       </div>
     </section>
@@ -980,10 +979,18 @@ function PublicCompetitorPanel({ fighter, title, side, total, position }) {
 function PublicScreen({ meta, judges, navigate }) {
   const time = useClock(meta);
   const p = meta.patternResult || makeEmptyPatternResult();
+  const scoringMode = getScoringMode(meta);
+  const binaryMode = scoringMode === "binary";
   const { left, right } = getDisplaySides(meta, "public");
   const publicJudges = activeJudges(meta, judges);
-  const evaluationStatus = meta.patternResult?.completed || meta.phase === "finished"
+  const binary = binarySummary(meta, judges);
+  const revealBinaryVoting = binaryMode && time === 0 && binary.allSent;
+  const evaluationStatus = meta.patternResult?.completed
     ? "FINISHED"
+    : revealBinaryVoting
+      ? "DECISION READY"
+      : meta.phase === "finished"
+        ? "FINISHED"
     : meta.status === "running"
       ? "EVALUATING"
       : meta.status === "paused"
@@ -1029,7 +1036,8 @@ function PublicScreen({ meta, judges, navigate }) {
             fighter={meta[left.color]}
             title={left.visualLabel}
             side={left.color}
-            total={left.color === "hong" ? p.hong || 0 : p.chong || 0}
+            total={binaryMode ? revealBinaryVoting ? binary[left.color] : "--" : left.color === "hong" ? p.hong || 0 : p.chong || 0}
+            scoreCaption={binaryMode && revealBinaryVoting ? "VOTES" : "TOTAL"}
             position="left"
           />
 
@@ -1060,10 +1068,14 @@ function PublicScreen({ meta, judges, navigate }) {
                 style={{ "--patterns-judge-count": publicJudges.length }}
               >
                 {publicJudges.map((judge) => {
-                  const sent = !!judge.pattern?.sent;
+                  const binary = judge.pattern?.binary;
+                  const sent = binaryMode
+                    ? binary?.sent === true && (binary.vote === "hong" || binary.vote === "chong")
+                    : !!judge.pattern?.sent;
+                  const revealedVote = binaryMode && revealBinaryVoting && sent ? binary.vote : null;
                   return (
                     <div
-                      className={`patterns-public__judge-indicator ${sent ? "patterns-public__judge-indicator--sent" : "patterns-public__judge-indicator--pending"}`}
+                      className={`patterns-public__judge-indicator ${sent ? "patterns-public__judge-indicator--sent" : "patterns-public__judge-indicator--pending"}${revealedVote ? ` patterns-public__judge-indicator--vote-${revealedVote}` : ""}`}
                       key={judge.id}
                     >
                       <span>J{judge.id}</span>
@@ -1080,7 +1092,8 @@ function PublicScreen({ meta, judges, navigate }) {
             fighter={meta[right.color]}
             title={right.visualLabel}
             side={right.color}
-            total={right.color === "hong" ? p.hong || 0 : p.chong || 0}
+            total={binaryMode ? revealBinaryVoting ? binary[right.color] : "--" : right.color === "hong" ? p.hong || 0 : p.chong || 0}
+            scoreCaption={binaryMode && revealBinaryVoting ? "VOTES" : "TOTAL"}
             position="right"
           />
       </div>
@@ -1126,7 +1139,13 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   });
   const currentJudges = activeJudges(meta, judges);
   const scoringMode = getScoringMode(meta);
-  const scoringModeLocked = judges.some((judge) => !!judge.pattern?.sent || !!judge.pattern?.binary?.sent);
+  const binary = binarySummary(meta, judges);
+  const activeSummary = scoringMode === "binary" ? binary : p;
+  const scoringModeLocked = currentJudges.some((judge) => {
+    if (scoringMode === "points") return !!judge.pattern?.sent;
+    const binaryVote = judge.pattern?.binary;
+    return binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong");
+  });
   const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
   const editorSaveTimeoutRef = useRef(null);
   const { left, right } = getDisplaySides(meta, "president");
@@ -1235,7 +1254,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     setSecondsInput(String(meta.config.roundSeconds || 120));
   }, [meta.config.roundSeconds]);
 
-  const saveConfig = async () => {
+  const saveConfig = async ({ preserveRemaining = false } = {}) => {
     const roundSeconds = Math.max(1, parseInt(secondsInput, 10) || 120);
 
     await writeMeta((current) => ({
@@ -1244,7 +1263,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
         ...(current.config || {}),
         roundSeconds,
       },
-      pausedRemaining: current.status === "paused" ? roundSeconds : current.pausedRemaining,
+      pausedRemaining: current.status === "paused" && current.phase === "fight" && !preserveRemaining
+        ? roundSeconds
+        : current.pausedRemaining,
     }));
   };
 
@@ -1271,29 +1292,21 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const startTimer = async () => {
+    const isResume = meta.status === "paused"
+      && meta.phase === "fight"
+      && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
     await commitEditor(editorDraftRef.current);
-    await saveConfig();
+    await saveConfig({ preserveRemaining: isResume });
 
     await writeMeta((current) => {
       if (current.status === "running") return current;
+      if (current.phase === "finished" || Number(current.pausedRemaining) <= 0) return current;
 
-      const next = {
+      return {
         ...current,
         status: "running",
         phaseStartedAt: Date.now(),
       };
-
-      if (current.phase === "finished") {
-        next.phase = "fight";
-        next.pausedRemaining = current.config?.roundSeconds || 120;
-        next.patternResult = {
-          ...(current.patternResult || makeEmptyPatternResult()),
-          completed: false,
-          winner: "en_curso",
-        };
-      }
-
-      return next;
     });
   };
 
@@ -1308,6 +1321,45 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const closePatternEvaluation = async () => {
+    if (getScoringMode(meta) === "binary") {
+      const metaSnapshot = await getDoc(matchMetaRef);
+      const persistedMeta = ensureMetaShape(metaSnapshot.exists() ? metaSnapshot.data() : meta);
+      const persistedJudges = Array.from({ length: MAX_JUDGES }, (_, index) => makeJudge(index + 1));
+      const judgesSnapshot = await getDocs(query(judgesColRef));
+      judgesSnapshot.forEach((judgeDocument) => {
+        const index = Number(judgeDocument.id) - 1;
+        if (index >= 0 && index < MAX_JUDGES) {
+          persistedJudges[index] = normalizeJudge(judgeDocument.data(), index + 1);
+        }
+      });
+      const live = binarySummary(persistedMeta, persistedJudges);
+      if (getScoringMode(persistedMeta) !== "binary" || !live.allSent || (live.winner !== "hong" && live.winner !== "chong")) {
+        console.error("Cannot close Binary evaluation: incomplete or inconsistent votes.", live);
+        return;
+      }
+
+      await writeMeta((current) => {
+        current.patternResult = {
+          ...(current.patternResult || makeEmptyPatternResult()),
+          scoringMode: "binary",
+          binary: {
+            hongVotes: live.hong,
+            chongVotes: live.chong,
+            sent: live.sent,
+            majorityRequired: live.majorityRequired,
+          },
+          completed: true,
+          winner: live.winner,
+        };
+        current.status = "paused";
+        current.phase = "finished";
+        current.phaseStartedAt = null;
+        current.pausedRemaining = 0;
+        return current;
+      });
+      return;
+    }
+
     const live = patternSummary(meta, judges);
 
     await writeMeta((current) => {
@@ -1346,9 +1398,11 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const applyPatternForcedWinner = async (winner) => {
+    if (getScoringMode(meta) === "binary" && winner === "draw") return;
     await writeMeta((current) => {
       current.patternResult = {
         ...current.patternResult,
+        ...(getScoringMode(current) === "binary" ? { scoringMode: "binary" } : {}),
         completed: true,
         winner,
       };
@@ -1489,7 +1543,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             <div>
               <AppButton style={styles.green} onClick={startTimer}><span aria-hidden="true">▶</span> START</AppButton>
               <AppButton style={styles.amber} onClick={pauseTimer}><span aria-hidden="true">Ⅱ</span> PAUSE</AppButton>
-              <AppButton style={styles.blue} disabled={p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
+              <AppButton style={styles.blue} disabled={scoringMode === "binary" ? !binary.allSent : p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
             </div>
           </div>
         </section>
@@ -1497,21 +1551,25 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
         <section className="patterns-president__judge-band" style={{ "--patterns-president-judges": currentJudges.length }}>
           {currentJudges.map((judge) => {
             const totals = patternTotalsForJudge(judge);
-            const sent = !!judge.pattern?.sent;
+            const binaryVote = judge.pattern?.binary;
+            const sent = scoringMode === "binary"
+              ? binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong")
+              : !!judge.pattern?.sent;
             return (
               <article className={`patterns-president__judge${sent ? " is-sent" : " is-pending"}`} key={judge.id}>
                 <div className="patterns-president__judge-heading">
                   <strong>JUDGE {judge.id}</strong>
                   <span><i aria-hidden="true" />{sent ? "SENT" : "PENDING"}</span>
                 </div>
-                <div className="patterns-president__judge-scores">
+                <div className={`patterns-president__judge-scores${scoringMode === "binary" ? " is-binary" : ""}`}>
                   {[left, right].map((fighter) => {
                     const side = fighter.color;
+                    const selected = scoringMode === "binary" && sent && binaryVote.vote === side;
                     return (
-                      <div className={`is-${side}`} key={side}>
+                      <div className={`is-${side}${selected ? " is-selected" : ""}`} key={side}>
                         <span>{fighter.visualLabel}</span>
-                        <strong>{totals[side]}</strong>
-                        <small>{judge.pattern?.[side]?.zero ? `${fighter.visualLabel} ABSOLUTE ZERO` : ""}</small>
+                        <strong>{scoringMode === "binary" ? selected ? fighter.visualLabel : "—" : totals[side]}</strong>
+                        {scoringMode === "points" && <small>{judge.pattern?.[side]?.zero ? `${fighter.visualLabel} ABSOLUTE ZERO` : ""}</small>}
                       </div>
                     );
                   })}
@@ -1526,16 +1584,25 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             <span>AGGREGATE RESULT</span>
             {[left, right].map((fighter) => {
               const side = fighter.color;
-              return <div className={`is-${side}`} key={side}><small>{fighter.visualLabel} TOTAL</small><strong>{p[side]}</strong></div>;
+              return (
+                <div className={`is-${side}`} key={side}>
+                  <small>{fighter.visualLabel} {scoringMode === "binary" ? "VOTES" : "TOTAL"}</small>
+                  <strong>{scoringMode === "binary" ? binary[side] : p[side]}</strong>
+                </div>
+              );
             })}
-            <div><small>JUDGES SENT</small><strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
+            <div>
+              <small>JUDGES SENT</small>
+              <strong>{activeSummary.sent}/{activeJudgeCount(meta)}</strong>
+              {scoringMode === "binary" && <small>MAJORITY {binary.majorityRequired}</small>}
+            </div>
           </div>
 
           <div className="patterns-president__secondary">
             <span>FORCED DECISION</span>
             <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
             <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
-            <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
+            <AppButton style={styles.gray} disabled={scoringMode === "binary"} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
             <details>
               <summary>QR ACCESS</summary>
               <div className="patterns-president__qr-overlay">
@@ -1666,24 +1733,46 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   const showJudgeWinner = !!meta.patternResult?.completed;
   const judgePreview = { ...judge, pattern: localPattern };
   const scoringMode = getScoringMode(meta);
+  const judgeStatus = meta.phase === "finished"
+    ? "FINISHED"
+    : meta.status === "running"
+      ? "EVALUATING"
+      : meta.status === "paused"
+          && meta.phase === "fight"
+          && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds)
+        ? "PAUSED"
+        : "READY";
 
   return (
     <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : undefined} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
-      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : undefined} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
+      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : undefined} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>{scoringMode === "binary" ? "EXIT" : "Inicio"}</AppButton>
 
-      <div className={scoringMode === "binary" ? "patterns-judge-page__brand" : undefined}><BrandHeaderSmall /></div>
+      {scoringMode === "binary" ? (
+        <div className="patterns-judge-page__brand" aria-label="Hwarang Scoring Universe Patterns GUP">
+          <img src="/logoooo.png" alt="Hwarang Scoring Universe" />
+          <small>PATTERNS GUP</small>
+        </div>
+      ) : (
+        <BrandHeaderSmall />
+      )}
 
       <h1 className={scoringMode === "binary" ? "patterns-judge-page__title" : undefined}>Juez {judgeId}</h1>
 
-      <div className={scoringMode === "binary" ? "patterns-judge-page__stats" : undefined} style={styles.row}>
-        <div className={scoringMode === "binary" ? "patterns-judge-page__stat" : undefined} style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
-        <div className={scoringMode === "binary" ? "patterns-judge-page__stat" : undefined} style={styles.stat}>Modalidad: <strong>FORMAS GUP</strong></div>
-      </div>
+      {scoringMode === "binary" ? (
+        <div className="patterns-judge-page__stats">
+          <div className="patterns-judge-page__stat"><span>TIME</span><strong>{formatTime(time)}</strong></div>
+          <div className="patterns-judge-page__stat"><span>STATUS</span><strong>{judgeStatus}</strong></div>
+        </div>
+      ) : (
+        <div style={styles.row}>
+          <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
+          <div style={styles.stat}>Modalidad: <strong>FORMAS GUP</strong></div>
+        </div>
+      )}
 
       <div className={scoringMode === "binary" ? "patterns-judge-page__content" : undefined} style={{ marginTop: 16 }}>
         {scoringMode === "binary" ? (
           <JudgePatternBinaryPanel
-            judgeId={judgeId}
             vote={localBinaryVote}
             sent={localBinarySent}
             onSelect={setLocalBinaryVote}

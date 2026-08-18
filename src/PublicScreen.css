@@ -472,6 +472,18 @@
   color: #f2c54d;
 }
 
+.patterns-public__judge-indicator--vote-hong > i {
+  background: linear-gradient(180deg, #ff4852, #b40812 62%, #480005);
+  border-color: rgba(255, 112, 120, 0.9);
+  box-shadow: 0 0 12px rgba(255, 38, 52, 0.72), 0 0 28px rgba(180, 8, 18, 0.34);
+}
+
+.patterns-public__judge-indicator--vote-chong > i {
+  background: linear-gradient(180deg, #4f91ff, #0c4ec4 62%, #001b58);
+  border-color: rgba(112, 168, 255, 0.92);
+  box-shadow: 0 0 12px rgba(48, 119, 255, 0.74), 0 0 28px rgba(12, 78, 196, 0.36);
+}
+
 .patterns-public__status {
   position: absolute;
   top: 55vh;

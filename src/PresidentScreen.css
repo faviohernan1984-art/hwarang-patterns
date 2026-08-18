@@ -454,6 +454,12 @@
 .patterns-president__judge-scores .is-chong { background: linear-gradient(135deg, rgba(8, 65, 170, 0.68), rgba(1, 17, 55, 0.92)); }
 .patterns-president__judge-scores span { font-size: 11px; font-weight: 900; letter-spacing: 0.08em; }
 .patterns-president__judge-scores strong { margin-top: 8px; font-size: 40px; line-height: 1; }
+.patterns-president__judge-scores.is-binary > div { opacity: 0.42; }
+.patterns-president__judge-scores.is-binary > .is-selected {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.68), 0 0 16px currentColor;
+}
+.patterns-president__judge-scores.is-binary strong { font-size: 20px; }
 .patterns-president__judge > small { overflow: hidden; color: #f5c542; font-size: 8px; font-weight: 900; line-height: 18px; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
 
 .patterns-president__bottom-band {
