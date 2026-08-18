@@ -334,11 +334,11 @@ function getDisplaySides(meta, context = "public") {
     visualLabel: "CHONG",
   };
 
-  if (!swap) {
-    return { left: chong, right: hong };
+  if (context === "president") {
+    return swap ? { left: chong, right: hong } : { left: hong, right: chong };
   }
 
-  return { left: hong, right: chong };
+  return swap ? { left: hong, right: chong } : { left: chong, right: hong };
 }
 
 async function ensureInitialDocs() {
@@ -1430,10 +1430,17 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
                   <span><i aria-hidden="true" />{sent ? "SENT" : "PENDING"}</span>
                 </div>
                 <div className="patterns-president__judge-scores">
-                  <div className="is-hong"><span>HONG</span><strong>{totals.hong}</strong></div>
-                  <div className="is-chong"><span>CHONG</span><strong>{totals.chong}</strong></div>
+                  {[left, right].map((fighter) => {
+                    const side = fighter.color;
+                    return (
+                      <div className={`is-${side}`} key={side}>
+                        <span>{fighter.visualLabel}</span>
+                        <strong>{totals[side]}</strong>
+                        <small>{judge.pattern?.[side]?.zero ? `${fighter.visualLabel} ABSOLUTE ZERO` : ""}</small>
+                      </div>
+                    );
+                  })}
                 </div>
-                <small>{judge.pattern?.hong?.zero ? "HONG ABSOLUTE ZERO" : ""}{judge.pattern?.hong?.zero && judge.pattern?.chong?.zero ? " · " : ""}{judge.pattern?.chong?.zero ? "CHONG ABSOLUTE ZERO" : ""}</small>
               </article>
             );
           })}
@@ -1442,8 +1449,10 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
         <section className="patterns-president__bottom-band">
           <div className="patterns-president__aggregate">
             <span>AGGREGATE RESULT</span>
-            <div className="is-hong"><small>HONG TOTAL</small><strong>{p.hong}</strong></div>
-            <div className="is-chong"><small>CHONG TOTAL</small><strong>{p.chong}</strong></div>
+            {[left, right].map((fighter) => {
+              const side = fighter.color;
+              return <div className={`is-${side}`} key={side}><small>{fighter.visualLabel} TOTAL</small><strong>{p[side]}</strong></div>;
+            })}
             <div><small>JUDGES SENT</small><strong>{p.sent}/{activeJudgeCount(meta)}</strong></div>
           </div>
 
