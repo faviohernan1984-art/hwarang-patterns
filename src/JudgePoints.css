@@ -1,0 +1,402 @@
+.patterns-judge-page--points {
+  position: relative;
+  width: min(100%, 420px) !important;
+  height: min(100svh, 900px);
+  min-height: min(100svh, 900px) !important;
+  max-height: 900px;
+  margin: auto;
+  padding: 16px !important;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #050505 !important;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.55)),
+    url("/backgrounds/judge-red.jpg") !important;
+  background-position: center center !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  box-shadow: 0 0 55px rgba(255, 0, 0, 0.61), 0 0 110px rgba(255, 0, 0, 0.18);
+  box-sizing: border-box;
+  color: #fff;
+  font-family: Orbitron, Arial, sans-serif !important;
+}
+
+.patterns-judge-points__brand::after {
+  content: "";
+  position: absolute;
+  top: 75%;
+  right: 14%;
+  left: 14%;
+  z-index: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #ff0000, transparent);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+  opacity: 0.6;
+  animation: patternsJudgePointsNeonPulse 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.patterns-judge-points__exit {
+  position: absolute;
+  top: 10px;
+  left: 16px;
+  z-index: 10;
+  width: auto !important;
+  min-height: 0 !important;
+  padding: 7px 20px !important;
+  border: 2px solid rgba(245, 197, 66, 0.38) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, rgba(10, 10, 10, 0.92), rgba(0, 0, 0, 0.98)) !important;
+  color: #f5c542 !important;
+  font: 900 11px Orbitron, Arial, sans-serif !important;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 12px rgba(245, 197, 66, 0.18), inset 0 0 12px rgba(245, 197, 66, 0.05) !important;
+}
+
+.patterns-judge-points__brand {
+  position: absolute;
+  inset: 133px 0 auto;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.patterns-judge-points__brand img {
+  width: 93%;
+  height: auto;
+  max-width: 290px;
+  opacity: 0.2;
+  filter: grayscale(100%);
+}
+
+.patterns-judge-points__brand small {
+  margin-top: -12px;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.32em;
+  text-shadow: 0 0 8px rgba(255, 0, 0, 0.3);
+}
+
+.patterns-judge-points__title {
+  position: relative;
+  z-index: 3;
+  align-self: flex-end;
+  margin: 0 2px 0 0 !important;
+  color: #fff !important;
+  font: 900 28px/1 Orbitron, Arial, sans-serif !important;
+  letter-spacing: 2px !important;
+  text-transform: uppercase;
+}
+
+.patterns-judge-points__stats {
+  position: relative;
+  z-index: 3;
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.patterns-judge-points__stat {
+  padding: 10px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  backdrop-filter: blur(4px);
+}
+
+.patterns-judge-points__stat span,
+.patterns-judge-points__stat strong {
+  display: block;
+}
+
+.patterns-judge-points__stat strong {
+  margin-top: 5px;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.patterns-judge-points__content {
+  position: relative;
+  z-index: 2;
+  min-height: 0;
+  margin-top: 12px !important;
+  display: flex;
+  flex: 1 1 auto;
+}
+
+.patterns-judge-points {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.patterns-judge-points__band {
+  padding: 10px;
+  border: 1px solid rgba(196, 151, 255, 0.42);
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.82), #4c1d95);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-align: center;
+  box-shadow: 0 0 16px rgba(124, 58, 237, 0.3);
+}
+
+.patterns-judge-points__status {
+  margin-top: 7px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-align: center;
+}
+
+.patterns-judge-points__status.is-sent {
+  color: #86efac;
+  text-shadow: 0 0 10px rgba(134, 239, 172, 0.5);
+}
+
+.patterns-judge-points__joystick {
+  position: relative;
+  min-height: 0;
+  margin-top: auto;
+  padding-top: clamp(12px, 3.5svh, 34px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.patterns-judge-points__joystick::before {
+  content: "";
+  position: absolute;
+  inset: -24px -18px -16px;
+  z-index: -1;
+  border-radius: 34px;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.93) 0%, rgba(0, 0, 0, 0.48) 38%, rgba(0, 0, 0, 0.12) 72%, transparent 100%);
+  filter: blur(14px);
+  pointer-events: none;
+}
+
+.patterns-judge-points__side {
+  min-width: 0;
+  padding: clamp(7px, 2vw, 10px);
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+  font-family: Orbitron, Arial, sans-serif;
+  font-weight: 900;
+  text-align: center;
+}
+
+.patterns-judge-points__side--hong {
+  background: linear-gradient(180deg, #dc2626, #7f1d1d);
+  box-shadow: 0 8px 24px rgba(127, 29, 29, 0.35);
+}
+
+.patterns-judge-points__side--chong {
+  background: linear-gradient(180deg, #3b82f6, #1e3a8a);
+  box-shadow: 0 8px 24px rgba(30, 58, 138, 0.35);
+}
+
+.patterns-judge-points__identity {
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.patterns-judge-points__total {
+  margin: 5px 0 6px;
+  font-size: clamp(25px, 8vw, 36px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.patterns-judge-points__zero {
+  width: 100%;
+  min-height: 42px;
+  padding: 5px 4px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background: var(--points-zero-bg);
+  color: #fff;
+  font: 900 clamp(8px, 2.5vw, 11px)/1.15 Orbitron, Arial, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.patterns-judge-points__zero.is-active {
+  background: #dc2626;
+  box-shadow: 0 0 20px rgba(248, 113, 113, 0.55);
+}
+
+.patterns-judge-points__zero:active:not(:disabled),
+.patterns-judge-points__choice:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.patterns-judge-points__zero:disabled {
+  cursor: default;
+}
+
+.patterns-judge-points__criterion {
+  margin: 7px 0 4px;
+  min-height: 12px;
+  font-size: clamp(8px, 2.5vw, 11px);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.patterns-judge-points__choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.patterns-judge-points__choices--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.patterns-judge-points__choice {
+  min-width: 0;
+  min-height: clamp(31px, 5svh, 42px);
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: 900 clamp(14px, 4.5vw, 20px)/1 Orbitron, Arial, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.patterns-judge-points__choice.is-selected {
+  border-color: rgba(134, 239, 172, 0.82);
+  background: #15803d;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.65);
+  filter: brightness(1.12);
+}
+
+.patterns-judge-points__choice:disabled {
+  cursor: default;
+  opacity: 0.46;
+  filter: saturate(0.5);
+}
+
+.patterns-judge-points__choice.is-selected:disabled {
+  opacity: 0.8;
+}
+
+.patterns-judge-points__send-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.patterns-judge-points__send {
+  width: 70% !important;
+  min-height: 0 !important;
+  padding: 12px 0 !important;
+  border: 4px solid rgba(255, 5, 5, 0.44) !important;
+  border-radius: 999px !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  color: #fff !important;
+  font: 900 clamp(11px, 3.5vw, 15px) Orbitron, Arial, sans-serif !important;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.2) !important;
+}
+
+.patterns-judge-page--points,
+.patterns-judge-points__brand small,
+.patterns-judge-points__title,
+.patterns-judge-points__stat,
+.patterns-judge-points__band,
+.patterns-judge-points__status,
+.patterns-judge-points__identity,
+.patterns-judge-points__criterion,
+.patterns-judge-points__send {
+  font-family: Orbitron, Arial, sans-serif;
+}
+
+@keyframes patternsJudgePointsNeonPulse {
+  0%, 100% { opacity: 0.35; transform: scaleX(0.92); }
+  50% { opacity: 0.75; transform: scaleX(1); }
+}
+
+@media (max-height: 720px) {
+  .patterns-judge-page--points { padding: 10px 12px !important; }
+  .patterns-judge-points__exit { top: 8px; left: 12px; padding: 6px 15px !important; }
+  .patterns-judge-points__title { font-size: 23px !important; }
+  .patterns-judge-points__stats { margin-top: 10px; }
+  .patterns-judge-points__stat { padding: 7px 6px; }
+  .patterns-judge-points__stat strong { margin-top: 3px; font-size: 18px; }
+  .patterns-judge-points__brand { inset-block-start: 112px; }
+  .patterns-judge-points__content { margin-top: 8px !important; }
+  .patterns-judge-points__band { padding: 7px; }
+  .patterns-judge-points__status { margin-top: 4px; }
+  .patterns-judge-points__joystick { padding-top: 6px; gap: 8px; }
+  .patterns-judge-points__side { padding: 6px; }
+  .patterns-judge-points__identity { font-size: 14px; }
+  .patterns-judge-points__total { margin: 3px 0 4px; font-size: 24px; }
+  .patterns-judge-points__zero { min-height: 32px; }
+  .patterns-judge-points__criterion { margin: 4px 0 3px; }
+  .patterns-judge-points__choice { min-height: 28px; font-size: 14px; }
+  .patterns-judge-points__send-wrap { margin-top: 7px; }
+  .patterns-judge-points__send { padding: 8px 0 !important; }
+}
+
+@media (min-width: 700px) and (max-height: 820px) {
+  .patterns-judge-page--points { padding: 16px !important; }
+  .patterns-judge-points__exit { top: 10px; left: 16px; padding: 7px 20px !important; }
+  .patterns-judge-points__title { font-size: 28px !important; }
+  .patterns-judge-points__stats { margin-top: 14px; }
+  .patterns-judge-points__stat { padding: 10px 8px; }
+  .patterns-judge-points__stat strong { margin-top: 5px; font-size: 22px; }
+  .patterns-judge-points__brand { inset-block-start: 133px; }
+  .patterns-judge-points__content { margin-top: 12px !important; }
+  .patterns-judge-points__band { padding: 10px; }
+  .patterns-judge-points__status { margin-top: 7px; }
+  .patterns-judge-points__joystick { padding-top: 10px; gap: 12px; }
+  .patterns-judge-points__side { padding: 8px; }
+  .patterns-judge-points__identity { font-size: 17px; }
+  .patterns-judge-points__total { margin: 5px 0 6px; font-size: 32px; }
+  .patterns-judge-points__zero { min-height: 38px; }
+  .patterns-judge-points__criterion { margin: 6px 0 4px; }
+  .patterns-judge-points__choice { min-height: 36px; font-size: 18px; }
+  .patterns-judge-points__send-wrap { margin-top: 10px; }
+  .patterns-judge-points__send { padding: 10px 0 !important; }
+}
+
+@media (max-width: 380px) {
+  .patterns-judge-page--points { padding-inline: 10px !important; }
+  .patterns-judge-points__title { font-size: 22px !important; }
+  .patterns-judge-points__stat strong { font-size: 19px; }
+  .patterns-judge-points__joystick { gap: 7px; }
+  .patterns-judge-points__side { padding-inline: 5px; }
+  .patterns-judge-points__identity { font-size: 15px; }
+  .patterns-judge-points__zero { font-size: 8px; }
+  .patterns-judge-points__criterion { font-size: 8px; }
+  .patterns-judge-points__choices { gap: 3px; }
+  .patterns-judge-points__choice { border-radius: 7px; font-size: 14px; }
+}

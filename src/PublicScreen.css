@@ -441,11 +441,20 @@
 }
 
 .patterns-public__judge-indicator > i {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 3vw;
   min-width: 12px;
   height: 6vh;
   border-radius: 2px;
+  color: transparent;
+  font-family: "Orbitron", Arial, sans-serif;
+  font-size: clamp(17px, 1.7vw, 32px);
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: none;
   transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
@@ -475,13 +484,25 @@
 .patterns-public__judge-indicator--vote-hong > i {
   background: linear-gradient(180deg, #ff4852, #b40812 62%, #480005);
   border-color: rgba(255, 112, 120, 0.9);
+  color: #fff;
   box-shadow: 0 0 12px rgba(255, 38, 52, 0.72), 0 0 28px rgba(180, 8, 18, 0.34);
+  text-shadow: 0 0 8px rgba(255, 26, 26, 0.95);
 }
 
 .patterns-public__judge-indicator--vote-chong > i {
   background: linear-gradient(180deg, #4f91ff, #0c4ec4 62%, #001b58);
   border-color: rgba(112, 168, 255, 0.92);
+  color: #fff;
   box-shadow: 0 0 12px rgba(48, 119, 255, 0.74), 0 0 28px rgba(12, 78, 196, 0.36);
+  text-shadow: 0 0 8px rgba(6, 2, 224, 0.95);
+}
+
+.patterns-public__judge-indicator--vote-draw > i {
+  background: linear-gradient(180deg, #fff866, #d9bd00 62%, #5f5100);
+  border-color: rgba(255, 242, 0, 0.92);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(255, 242, 0, 0.72), 0 0 28px rgba(217, 189, 0, 0.34);
+  text-shadow: 0 0 8px rgba(255, 242, 0, 0.95);
 }
 
 .patterns-public__status {

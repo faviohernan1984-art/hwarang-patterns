@@ -11,9 +11,11 @@ import {
 import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
+import { useWakeLock } from "./useWakeLock";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
 import "./JudgeBinary.css";
+import "./JudgePoints.css";
 
 const HONG = "Hong";
 const CHONG = "Chong";
@@ -151,6 +153,21 @@ function GlobalAppStyle() {
         20% { transform: scale(1.06); filter: brightness(1.35); }
         30% { transform: scale(1.02); filter: brightness(1.1); }
         100% { transform: scale(1); filter: brightness(1); }
+      }
+
+      @keyframes winnerBorderPulseRed {
+        0%, 100% { box-shadow: 0 0 10px rgba(255,26,26,.4), 0 0 20px rgba(255,26,26,.2); }
+        50% { box-shadow: 0 0 24px rgba(255,26,26,.9), 0 0 52px rgba(255,26,26,.5); }
+      }
+
+      @keyframes winnerBorderPulseBlue {
+        0%, 100% { box-shadow: 0 0 10px rgba(6,2,224,.4), 0 0 20px rgba(6,2,224,.2); }
+        50% { box-shadow: 0 0 24px rgba(6,2,224,.9), 0 0 52px rgba(6,2,224,.5); }
+      }
+
+      @keyframes winnerBorderPulseYellow {
+        0%, 100% { box-shadow: 0 0 10px rgba(255,242,0,.4), 0 0 20px rgba(255,242,0,.2); }
+        50% { box-shadow: 0 0 24px rgba(255,242,0,.9), 0 0 52px rgba(255,242,0,.5); }
       }
     `}</style>
   );
@@ -691,27 +708,81 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
     );
   }
 
-  if (winner === "draw") {
-    return (
-      <div style={{ position: "absolute", inset: 0, zIndex, background: "#3b3b3b", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw" }}>
-        <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "0.16em", lineHeight: 1 }}>RESULTADO</div>
-          <div style={{ marginTop: 28, fontSize: 210, fontWeight: 900, lineHeight: 0.92 }}>EMPATE</div>
-        </div>
-      </div>
-    );
-  }
+  if (winner !== "hong" && winner !== "chong" && winner !== "draw") return null;
 
-  if (winner !== "hong" && winner !== "chong") return null;
-  const isHong = winner === "hong";
+  const isDraw = winner === "draw";
+  const color = winner === "hong" ? "#ff1a1a" : winner === "chong" ? "#0602e0" : "#fff200";
+  const glow = winner === "hong"
+    ? "0 0 14px rgba(255,26,26,.65), 0 0 32px rgba(255,26,26,.35)"
+    : winner === "chong"
+      ? "0 0 14px rgba(6,2,224,.65), 0 0 32px rgba(6,2,224,.35)"
+      : "0 0 18px rgba(255,242,0,.65), 0 0 42px rgba(255,242,0,.35)";
+  const borderPulse = winner === "hong"
+    ? "winnerBorderPulseRed"
+    : winner === "chong"
+      ? "winnerBorderPulseBlue"
+      : "winnerBorderPulseYellow";
 
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex, background: isHong ? "#b91c1c" : "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "5vw", animation: "winnerPulse 1.2s infinite" }}>
-      <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontSize: 62, fontWeight: 800, letterSpacing: "0.16em", opacity: 0.92, lineHeight: 1 }}>WINNER</div>
-        <div style={{ marginTop: 28, fontSize: 220, fontWeight: 900, lineHeight: 0.92 }}>{isHong ? "HONG" : "CHONG"}</div>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex,
+        background: "rgba(0,0,0,0.92)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 18,
+        padding: 20,
+        fontFamily: "Orbitron, Arial, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          borderRadius: 24,
+          marginTop: isDraw ? -36 : -50,
+          border: `4px solid ${color}`,
+          background: "#050505",
+          color,
+          textAlign: "center",
+          padding: "36px 20px",
+          fontWeight: 900,
+          boxShadow: glow,
+          animation: `winnerEnter 0.45s ease-out, winnerPulsePro 1.6s ease-in-out 0.6s infinite, ${borderPulse} 1.8s ease-in-out infinite`,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 16,
+            letterSpacing: "0.28em",
+            marginBottom: 16,
+            color: "rgba(255,255,255,0.75)",
+            fontWeight: 800,
+          }}
+        >
+          HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>™</span>
+        </div>
+
+        <div style={{ fontSize: isDraw ? 56 : 58, lineHeight: isDraw ? 1 : 0.95, textShadow: "none", letterSpacing: isDraw ? undefined : "0.04em" }}>
+          {winner === "hong" ? "HONG" : winner === "chong" ? "CHONG" : "DRAW"}
+        </div>
+
+        {!isDraw && (
+          <div style={{ fontSize: 44, lineHeight: 0.95, textShadow: "none", letterSpacing: "0.06em", marginTop: 6 }}>
+            WINNER
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, marginTop: 18, color: "rgba(255,255,255,0.5)", letterSpacing: 2, fontWeight: 800 }}>
+          WWW.HWARANGSCORING.ORG
+        </div>
       </div>
-      <style>{`@keyframes winnerPulse {0%{opacity:1;}50%{opacity:0.76;}100%{opacity:1;}}`}</style>
+
+      {mode === "president" && <AppButton style={styles.gray} onClick={onClose}>Close</AppButton>}
     </div>
   );
 }
@@ -724,21 +795,7 @@ function ScoreChoice({ selected, value, onClick, disabled }) {
         onClick();
       }}
       disabled={disabled}
-      style={{
-        padding: "12px 15px",
-        borderRadius: 12,
-        border: "none",
-        cursor: disabled ? "default" : "pointer",
-        fontWeight: 900,
-        color: "white",
-        background: selected === value ? "#15803d" : "#444",
-        marginRight: 8,
-        marginBottom: 8,
-        minWidth: 54,
-        minHeight: 52,
-        fontSize: 22,
-        boxShadow: selected === value ? "0 0 18px rgba(34,197,94,0.45)" : "none",
-      }}
+      className={`patterns-judge-points__choice${selected === value ? " is-selected" : ""}`}
       type="button"
     >
       {value}
@@ -755,19 +812,8 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
       }}
       disabled={disabled}
       type="button"
-      style={{
-        width: "100%",
-        padding: "16px 16px",
-        borderRadius: 14,
-        border: "2px solid rgba(255,255,255,0.15)",
-        background: active ? "#dc2626" : bg,
-        color: "white",
-        fontWeight: 900,
-        fontSize: 16,
-        cursor: disabled ? "default" : "pointer",
-        marginBottom: 12,
-        boxShadow: active ? "0 0 20px rgba(248,113,113,0.55)" : "none",
-      }}
+      className={`patterns-judge-points__zero${active ? " is-active" : ""}`}
+      style={{ "--points-zero-bg": bg }}
     >
       {active ? `${label} ACTIVADO` : label}
     </button>
@@ -826,9 +872,10 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
     onSelectValue(side, field, next);
   };
 
-  const SidePanel = ({ side, title, bg, border }) => (
-    <div style={{ ...styles.panel, background: bg, border }}>
-      <div style={{ fontWeight: 900, marginBottom: 8 }}>{title}</div>
+  const SidePanel = ({ side, title }) => (
+    <section className={`patterns-judge-points__side patterns-judge-points__side--${side}`}>
+      <div className="patterns-judge-points__identity">{title}</div>
+      <div className="patterns-judge-points__total">{side === "hong" ? totals.hong : totals.chong}</div>
 
       <ZeroAbsoluteButton
         active={judge.pattern[side].zero}
@@ -838,30 +885,29 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
         bg={side === "hong" ? "#7f1d1d" : "#1e3a8a"}
       />
 
-      <div style={{ marginBottom: 8 }}>Contenido técnico</div>
-      <div>{[1, 2, 3, 4, 5].map((n) => <ScoreChoice key={`${side}-tech-${n}`} selected={judge.pattern[side].tech || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "tech", n)} />)}</div>
+      <div className="patterns-judge-points__criterion">Contenido técnico</div>
+      <div className="patterns-judge-points__choices patterns-judge-points__choices--five">{[1, 2, 3, 4, 5].map((n) => <ScoreChoice key={`${side}-tech-${n}`} selected={judge.pattern[side].tech || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "tech", n)} />)}</div>
 
-      <div style={{ margin: "12px 0 8px" }}>Poder</div>
-      <div>{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-power-${n}`} selected={judge.pattern[side].power || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "power", n)} />)}</div>
+      <div className="patterns-judge-points__criterion">Poder</div>
+      <div className="patterns-judge-points__choices">{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-power-${n}`} selected={judge.pattern[side].power || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "power", n)} />)}</div>
 
-      <div style={{ margin: "12px 0 8px" }}>Ritmo</div>
-      <div>{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-rhythm-${n}`} selected={judge.pattern[side].rhythm || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "rhythm", n)} />)}</div>
-
-      <div style={{ marginTop: 12, fontWeight: 900 }}>Total: {side === "hong" ? totals.hong : totals.chong}</div>
-    </div>
+      <div className="patterns-judge-points__criterion">Ritmo</div>
+      <div className="patterns-judge-points__choices">{[1, 2, 3].map((n) => <ScoreChoice key={`${side}-rhythm-${n}`} selected={judge.pattern[side].rhythm || 0} value={n} disabled={locked || judge.pattern[side].zero} onClick={() => toggleValue(side, "rhythm", n)} />)}</div>
+    </section>
   );
 
   return (
-    <div style={{ ...styles.panel, background: "#07111f", border: "1px solid #17304f" }}>
-      <div style={{ fontWeight: 900, marginBottom: 16, fontSize: 28, textAlign: "center" }}>JUEZ {judge.id}</div>
+    <div className="patterns-judge-points">
+      <div className="patterns-judge-points__band">POINTS · GUP</div>
+      <div className={`patterns-judge-points__status${locked ? " is-sent" : ""}`}>{locked ? "SENT" : "SELECT SCORES"}</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <SidePanel side="hong" title={HONG} bg="#2a0606" border="1px solid #631010" />
-        <SidePanel side="chong" title={CHONG} bg="#07172f" border="1px solid #174a9c" />
+      <div className="patterns-judge-points__joystick">
+        <SidePanel side="hong" title={HONG} />
+        <SidePanel side="chong" title={CHONG} />
       </div>
 
-      <div style={{ marginTop: 18 }}>
-        <AppButton style={styles.green} onClick={onSave}>Guardar / Enviar</AppButton>
+      <div className="patterns-judge-points__send-wrap">
+        <AppButton className="patterns-judge-points__send" style={styles.green} onClick={onSave}>Guardar / Enviar</AppButton>
       </div>
     </div>
   );
@@ -985,6 +1031,10 @@ function PublicScreen({ meta, judges, navigate }) {
   const publicJudges = activeJudges(meta, judges);
   const binary = binarySummary(meta, judges);
   const revealBinaryVoting = binaryMode && time === 0 && binary.allSent;
+  const revealPointsVoting = !binaryMode
+    && time === 0
+    && publicJudges.length > 0
+    && publicJudges.every((judge) => judge.pattern?.sent === true);
   const evaluationStatus = meta.patternResult?.completed
     ? "FINISHED"
     : revealBinaryVoting
@@ -1072,14 +1122,25 @@ function PublicScreen({ meta, judges, navigate }) {
                   const sent = binaryMode
                     ? binary?.sent === true && (binary.vote === "hong" || binary.vote === "chong")
                     : !!judge.pattern?.sent;
-                  const revealedVote = binaryMode && revealBinaryVoting && sent ? binary.vote : null;
+                  let revealedDecision = null;
+                  if (binaryMode && revealBinaryVoting && sent) {
+                    revealedDecision = binary.vote;
+                  } else if (!binaryMode && revealPointsVoting && sent) {
+                    const totals = patternTotalsForJudge(judge);
+                    revealedDecision = totals.hong > totals.chong
+                      ? "hong"
+                      : totals.chong > totals.hong
+                        ? "chong"
+                        : "draw";
+                  }
+                  const decisionLetter = revealedDecision === "hong" ? "H" : revealedDecision === "chong" ? "C" : revealedDecision === "draw" ? "D" : "";
                   return (
                     <div
-                      className={`patterns-public__judge-indicator ${sent ? "patterns-public__judge-indicator--sent" : "patterns-public__judge-indicator--pending"}${revealedVote ? ` patterns-public__judge-indicator--vote-${revealedVote}` : ""}`}
+                      className={`patterns-public__judge-indicator ${sent ? "patterns-public__judge-indicator--sent" : "patterns-public__judge-indicator--pending"}${revealedDecision ? ` patterns-public__judge-indicator--vote-${revealedDecision}` : ""}`}
                       key={judge.id}
                     >
                       <span>J{judge.id}</span>
-                      <i aria-hidden="true" />
+                      <i aria-hidden="true">{decisionLetter}</i>
                       <small>{sent ? "SENT" : "PENDING"}</small>
                     </div>
                   );
@@ -1634,6 +1695,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 }
 
 function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
+  useWakeLock();
   const time = useClock(meta);
   const prevFinishedRef = useRef(false);
 
@@ -1744,8 +1806,8 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
         : "READY";
 
   return (
-    <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : undefined} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
-      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : undefined} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>{scoringMode === "binary" ? "EXIT" : "Inicio"}</AppButton>
+    <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : "patterns-judge-page patterns-judge-page--points"} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
+      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : "patterns-judge-points__exit"} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>EXIT</AppButton>
 
       {scoringMode === "binary" ? (
         <div className="patterns-judge-page__brand" aria-label="Hwarang Scoring Universe Patterns GUP">
@@ -1753,10 +1815,13 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
           <small>PATTERNS GUP</small>
         </div>
       ) : (
-        <BrandHeaderSmall />
+        <div className="patterns-judge-points__brand" aria-label="Hwarang Scoring Universe Patterns GUP">
+          <img src="/logoooo.png" alt="Hwarang Scoring Universe" />
+          <small>PATTERNS GUP</small>
+        </div>
       )}
 
-      <h1 className={scoringMode === "binary" ? "patterns-judge-page__title" : undefined}>Juez {judgeId}</h1>
+      <h1 className={scoringMode === "binary" ? "patterns-judge-page__title" : "patterns-judge-points__title"}>Juez {judgeId}</h1>
 
       {scoringMode === "binary" ? (
         <div className="patterns-judge-page__stats">
@@ -1764,13 +1829,13 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
           <div className="patterns-judge-page__stat"><span>STATUS</span><strong>{judgeStatus}</strong></div>
         </div>
       ) : (
-        <div style={styles.row}>
-          <div style={styles.stat}>Tiempo: <strong>{formatTime(time)}</strong></div>
-          <div style={styles.stat}>Modalidad: <strong>FORMAS GUP</strong></div>
+        <div className="patterns-judge-points__stats">
+          <div className="patterns-judge-points__stat"><span>TIME</span><strong>{formatTime(time)}</strong></div>
+          <div className="patterns-judge-points__stat"><span>STATUS</span><strong>{judgeStatus}</strong></div>
         </div>
       )}
 
-      <div className={scoringMode === "binary" ? "patterns-judge-page__content" : undefined} style={{ marginTop: 16 }}>
+      <div className={scoringMode === "binary" ? "patterns-judge-page__content" : "patterns-judge-points__content"} style={{ marginTop: 16 }}>
         {scoringMode === "binary" ? (
           <JudgePatternBinaryPanel
             vote={localBinaryVote}
