@@ -87,6 +87,14 @@
   filter: grayscale(0.4);
 }
 
+.patterns-president button:disabled,
+.patterns-president input:disabled {
+  opacity: 0.38;
+  cursor: not-allowed !important;
+  filter: grayscale(0.5) saturate(0.35) brightness(0.72) !important;
+  box-shadow: none !important;
+}
+
 .patterns-president__brand {
   min-width: 0;
   justify-self: end;

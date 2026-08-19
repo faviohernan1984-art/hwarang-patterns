@@ -12,6 +12,23 @@ import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { useWakeLock } from "./useWakeLock";
+import {
+  applyFirstBinarySubmission,
+  applyFirstPointsSubmission,
+  applyJudgeCountChange,
+  canPrepareNext,
+  canCloseEvaluation,
+  isConfigurationLocked,
+  isEvaluationOpen,
+  isExpectedEvaluation,
+  isValidPointsSubmission,
+  makeEmptyResult,
+  makeFreshJudge,
+  makeNextEvaluationMeta,
+  makeResetEvaluationMeta,
+  normalizeEvaluationId,
+  pointsSummary,
+} from "./evaluationRules";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
 import "./JudgeBinary.css";
@@ -173,19 +190,8 @@ function GlobalAppStyle() {
   );
 }
 
-function makeJudge(id) {
-  return {
-    id,
-    hongPoints: 0,
-    chongPoints: 0,
-    history: [],
-    pattern: {
-      hong: { tech: 0, power: 0, rhythm: 0, zero: false },
-      chong: { tech: 0, power: 0, rhythm: 0, zero: false },
-      sent: false,
-      binary: { vote: null, sent: false },
-    },
-  };
+function makeJudge(id, evaluationId = 1) {
+  return makeFreshJudge(id, evaluationId);
 }
 
 function normalizeJudge(raw, id) {
@@ -212,23 +218,17 @@ function normalizeJudge(raw, id) {
         vote: raw.pattern?.binary?.vote === "hong" || raw.pattern?.binary?.vote === "chong"
           ? raw.pattern.binary.vote
           : null,
-        sent: !!raw.pattern?.binary?.sent,
+        sent: raw.pattern?.binary?.sent === true,
       },
     },
   };
 }
 
 function makeEmptyPatternResult() {
-  return {
-    hong: 0,
-    chong: 0,
-    sent: 0,
-    completed: false,
-    winner: "en_curso",
-  };
+  return makeEmptyResult();
 }
 
-function makeInitialMeta() {
+function makeInitialMeta(evaluationId = 1) {
   return {
     mode: "pattern",
     config: {
@@ -236,6 +236,8 @@ function makeInitialMeta() {
       patternJudges: 3,
       scoringMode: "binary",
     },
+    evaluationId: normalizeEvaluationId(evaluationId),
+    evaluationStarted: false,
     round: 1,
     phase: "fight",
     status: "paused",
@@ -258,6 +260,9 @@ function ensureMetaShape(raw) {
     ...base.config,
     ...(current.config || {}),
   };
+  const legacyEvaluationStarted = current.status === "running"
+    || current.phase === "finished"
+    || (current.phase === "fight" && Number(current.pausedRemaining) < Number(config.roundSeconds));
   if (raw && !Object.prototype.hasOwnProperty.call(current.config || {}, "scoringMode")) {
     delete config.scoringMode;
   }
@@ -265,6 +270,10 @@ function ensureMetaShape(raw) {
     ...base,
     ...current,
     config,
+    evaluationId: normalizeEvaluationId(current.evaluationId),
+    evaluationStarted: Object.prototype.hasOwnProperty.call(current, "evaluationStarted")
+      ? current.evaluationStarted === true
+      : legacyEvaluationStarted,
     hong: {
       ...base.hong,
       ...(current.hong || {}),
@@ -320,39 +329,35 @@ function useClock(meta) {
 function patternTotalsForJudge(judge) {
   const hongZero = !!judge.pattern?.hong?.zero;
   const chongZero = !!judge.pattern?.chong?.zero;
+  const validValue = (value, max) => Number.isInteger(value) && value >= 1 && value <= max ? value : 0;
+  const totalSide = (side, zero) => zero
+    ? 0
+    : validValue(side?.tech, 5) + validValue(side?.power, 3) + validValue(side?.rhythm, 3);
 
-  const hong = hongZero ? 0 : (judge.pattern?.hong?.tech || 0) + (judge.pattern?.hong?.power || 0) + (judge.pattern?.hong?.rhythm || 0);
-  const chong = chongZero ? 0 : (judge.pattern?.chong?.tech || 0) + (judge.pattern?.chong?.power || 0) + (judge.pattern?.chong?.rhythm || 0);
+  const hong = totalSide(judge.pattern?.hong, hongZero);
+  const chong = totalSide(judge.pattern?.chong, chongZero);
 
   return { hong, chong };
 }
 
+function isCurrentPointsSubmission(meta, judge) {
+  return judge?.pattern?.sent === true
+    && normalizeEvaluationId(judge.pattern.evaluationId) === normalizeEvaluationId(meta?.evaluationId)
+    && isValidPointsSubmission(judge.pattern);
+}
+
+function isCurrentBinarySubmission(meta, judge) {
+  const binary = judge?.pattern?.binary;
+  return binary?.sent === true
+    && (binary.vote === "hong" || binary.vote === "chong")
+    && normalizeEvaluationId(binary.evaluationId) === normalizeEvaluationId(meta?.evaluationId);
+}
+
 function patternSummary(meta, judges) {
-  const currentJudges = activeJudges(meta, judges);
-
-  let hong = 0;
-  let chong = 0;
-  let sent = 0;
-
-  currentJudges.forEach((j) => {
-    if (j.pattern?.sent) {
-      sent += 1;
-      const totals = patternTotalsForJudge(j);
-      hong += totals.hong;
-      chong += totals.chong;
-    }
-  });
-
-  let winner = "en_curso";
-  if (meta.patternResult?.completed && meta.patternResult?.winner) {
-    winner = meta.patternResult.winner;
-  } else if (sent === currentJudges.length) {
-    if (hong > chong) winner = "hong";
-    else if (chong > hong) winner = "chong";
-    else winner = "draw";
-  }
-
-  return { hong, chong, sent, winner };
+  const summary = pointsSummary(meta, judges, activeJudgeCount(meta));
+  return meta.patternResult?.completed && meta.patternResult?.winner
+    ? { ...summary, winner: meta.patternResult.winner }
+    : summary;
 }
 
 function getDisplaySides(meta, context = "public") {
@@ -380,9 +385,10 @@ function getDisplaySides(meta, context = "public") {
 
 async function ensureInitialDocs() {
   const metaSnap = await getDoc(matchMetaRef);
+  const initialMeta = metaSnap.exists() ? ensureMetaShape(metaSnap.data()) : makeInitialMeta();
 
   if (!metaSnap.exists()) {
-    await setDoc(matchMetaRef, makeInitialMeta());
+    await setDoc(matchMetaRef, initialMeta);
   }
 
   const existing = await getDocs(query(judgesColRef));
@@ -390,7 +396,7 @@ async function ensureInitialDocs() {
 
   for (let i = 1; i <= MAX_JUDGES; i += 1) {
     if (!ids.has(String(i))) {
-      await setDoc(judgeRef(i), makeJudge(i));
+      await setDoc(judgeRef(i), makeJudge(i, initialMeta.evaluationId));
     }
   }
 }
@@ -422,34 +428,165 @@ function useFightData() {
   }, []);
 
   const writeMeta = async (mutator) => {
-    const snap = await getDoc(matchMetaRef);
-    const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
-    const draft = clone(current);
-    const result = typeof mutator === "function" ? mutator(draft) : mutator;
-    const next = ensureMetaShape(result ?? draft);
-    next.updatedAt = Date.now();
-    await setDoc(matchMetaRef, next);
+    return runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(matchMetaRef);
+      const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
+      const draft = clone(current);
+      const result = typeof mutator === "function" ? mutator(draft) : mutator;
+      const next = ensureMetaShape(result ?? draft);
+      next.updatedAt = Date.now();
+      transaction.set(matchMetaRef, next);
+      return next;
+    });
   };
 
-  const writeJudge = async (id, mutator) => {
+  const submitPoints = async (id, evaluationId, submittedPattern) => {
     const ref = judgeRef(id);
-    const snap = await getDoc(ref);
-    const current = snap.exists() ? normalizeJudge(snap.data(), id) : makeJudge(id);
-    const draft = clone(current);
-    const result = typeof mutator === "function" ? mutator(draft) : mutator;
-    const next = result ?? draft;
-    await setDoc(ref, next);
-    return next;
+    return runTransaction(db, async (transaction) => {
+      const metaSnap = await transaction.get(matchMetaRef);
+      const judgeSnap = await transaction.get(ref);
+      const currentMeta = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+      const generation = normalizeEvaluationId(currentMeta.evaluationId);
+      const currentJudge = judgeSnap.exists()
+        ? normalizeJudge(judgeSnap.data(), id)
+        : makeJudge(id, generation);
+
+      if (getScoringMode(currentMeta) !== "points") return { status: "wrong_mode", judge: currentJudge };
+      if (id < 1 || id > activeJudgeCount(currentMeta)) return { status: "inactive_judge", judge: currentJudge };
+      if (!isEvaluationOpen(currentMeta, evaluationId)) {
+        return { status: currentMeta.patternResult?.completed ? "completed" : currentMeta.evaluationStarted ? "stale_generation" : "not_started", judge: currentJudge };
+      }
+
+      const result = applyFirstPointsSubmission(currentJudge, evaluationId, submittedPattern);
+      if (result.status === "accepted") transaction.set(ref, result.judge);
+      return result;
+    });
   };
 
-  const resetAll = async () => {
-    await setDoc(matchMetaRef, makeInitialMeta());
+  const submitBinary = async (id, evaluationId, vote) => {
+    const ref = judgeRef(id);
+    return runTransaction(db, async (transaction) => {
+      const metaSnap = await transaction.get(matchMetaRef);
+      const judgeSnap = await transaction.get(ref);
+      const currentMeta = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+      const generation = normalizeEvaluationId(currentMeta.evaluationId);
+      const currentJudge = judgeSnap.exists()
+        ? normalizeJudge(judgeSnap.data(), id)
+        : makeJudge(id, generation);
+
+      if (getScoringMode(currentMeta) !== "binary") return { status: "wrong_mode", judge: currentJudge };
+      if (id < 1 || id > activeJudgeCount(currentMeta)) return { status: "inactive_judge", judge: currentJudge };
+      if (!isEvaluationOpen(currentMeta, evaluationId)) {
+        return { status: currentMeta.patternResult?.completed ? "completed" : currentMeta.evaluationStarted ? "stale_generation" : "not_started", judge: currentJudge };
+      }
+
+      const result = applyFirstBinarySubmission(currentJudge, evaluationId, vote);
+      if (result.status === "accepted") transaction.set(ref, result.judge);
+      return result;
+    });
+  };
+
+  const prepareNextEvaluation = async () => runTransaction(db, async (transaction) => {
+    const metaSnap = await transaction.get(matchMetaRef);
+    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    if (!canPrepareNext(current)) return { status: "not_completed", meta: current };
+    const next = makeNextEvaluationMeta(current);
+    next.updatedAt = Date.now();
+    transaction.set(matchMetaRef, next);
     for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await setDoc(judgeRef(i), makeJudge(i));
+      transaction.set(judgeRef(i), makeJudge(i, next.evaluationId));
     }
+    return { status: "accepted", meta: next };
+  });
+
+  const closePointsEvaluation = async (evaluationId) => runTransaction(db, async (transaction) => {
+    const metaSnap = await transaction.get(matchMetaRef);
+    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const judgeCount = activeJudgeCount(current);
+    const judgeSnapshots = [];
+    for (let i = 1; i <= judgeCount; i += 1) judgeSnapshots.push(await transaction.get(judgeRef(i)));
+
+    if (getScoringMode(current) !== "points") return { status: "wrong_mode" };
+    if (normalizeEvaluationId(current.evaluationId) !== normalizeEvaluationId(evaluationId)) return { status: "stale_generation" };
+    if (current.evaluationStarted !== true) return { status: "not_started" };
+    if (current.patternResult?.completed === true) return { status: "already_completed" };
+    if (!canCloseEvaluation({ time: getDerivedTime(current, Date.now()), allSent: true, completed: false })) {
+      return { status: "time_running" };
+    }
+
+    const persistedJudges = judgeSnapshots.map((snapshot, index) => snapshot.exists()
+      ? normalizeJudge(snapshot.data(), index + 1)
+      : makeJudge(index + 1, current.evaluationId));
+    if (!persistedJudges.every((judge) => isCurrentPointsSubmission(current, judge))) {
+      return { status: "incomplete" };
+    }
+
+    const live = patternSummary(current, persistedJudges);
+    if (live.sent !== judgeCount || !["hong", "chong", "draw"].includes(live.winner)) return { status: "invalid" };
+
+    current.patternResult = { hong: live.hong, chong: live.chong, sent: live.sent, completed: true, winner: live.winner };
+    current.status = "paused";
+    current.phase = "finished";
+    current.phaseStartedAt = null;
+    current.pausedRemaining = 0;
+    current.updatedAt = Date.now();
+    transaction.set(matchMetaRef, current);
+    return { status: "accepted", result: current.patternResult };
+  });
+
+  const closeBinaryEvaluation = async (evaluationId) => runTransaction(db, async (transaction) => {
+    const metaSnap = await transaction.get(matchMetaRef);
+    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const judgeCount = activeJudgeCount(current);
+    const judgeSnapshots = [];
+    for (let i = 1; i <= judgeCount; i += 1) judgeSnapshots.push(await transaction.get(judgeRef(i)));
+
+    if (getScoringMode(current) !== "binary") return { status: "wrong_mode" };
+    if (normalizeEvaluationId(current.evaluationId) !== normalizeEvaluationId(evaluationId)) return { status: "stale_generation" };
+    if (current.evaluationStarted !== true) return { status: "not_started" };
+    if (current.patternResult?.completed === true) return { status: "already_completed" };
+    if (!canCloseEvaluation({ time: getDerivedTime(current, Date.now()), allSent: true, completed: false })) {
+      return { status: "time_running" };
+    }
+
+    const persistedJudges = judgeSnapshots.map((snapshot, index) => snapshot.exists()
+      ? normalizeJudge(snapshot.data(), index + 1)
+      : makeJudge(index + 1, current.evaluationId));
+    const live = binarySummary(current, persistedJudges);
+    if (!live.allSent || (live.winner !== "hong" && live.winner !== "chong")) return { status: "incomplete" };
+
+    current.patternResult = {
+      ...(current.patternResult || makeEmptyPatternResult()),
+      scoringMode: "binary",
+      binary: { hongVotes: live.hong, chongVotes: live.chong, sent: live.sent, majorityRequired: live.majorityRequired },
+      completed: true,
+      winner: live.winner,
+    };
+    current.status = "paused";
+    current.phase = "finished";
+    current.phaseStartedAt = null;
+    current.pausedRemaining = 0;
+    current.updatedAt = Date.now();
+    transaction.set(matchMetaRef, current);
+    return { status: "accepted", result: current.patternResult };
+  });
+
+  const resetAll = async (evaluationId) => {
+    return runTransaction(db, async (transaction) => {
+      const metaSnap = await transaction.get(matchMetaRef);
+      const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+      if (!isExpectedEvaluation(current, evaluationId)) return { status: "stale_generation", meta: current };
+      const next = makeResetEvaluationMeta(current);
+      next.updatedAt = Date.now();
+      transaction.set(matchMetaRef, next);
+      for (let i = 1; i <= MAX_JUDGES; i += 1) {
+        transaction.set(judgeRef(i), makeJudge(i, next.evaluationId));
+      }
+      return { status: "accepted", meta: next };
+    });
   };
 
-  return { meta, judges, writeMeta, writeJudge, resetAll };
+  return { meta, judges, writeMeta, submitPoints, submitBinary, prepareNextEvaluation, closePointsEvaluation, closeBinaryEvaluation, resetAll };
 }
 
 function useRoute() {
@@ -820,13 +957,13 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
   );
 }
 
-function JudgePatternBinaryPanel({ vote, sent, onSelect, onSend }) {
+function JudgePatternBinaryPanel({ vote, sent, sending, canSend, sendError, onSelect, onSend }) {
   const renderSide = (side, label) => {
     const selected = vote === side;
     return (
       <button
         type="button"
-        disabled={sent}
+        disabled={sent || sending}
         className={`patterns-judge-binary__side patterns-judge-binary__side--${side}${selected ? " is-selected" : ""}`}
         onClick={() => {
           tapFeedback({ vibrateMs: 45 });
@@ -843,24 +980,26 @@ function JudgePatternBinaryPanel({ vote, sent, onSelect, onSend }) {
   return (
     <div className="patterns-judge-binary">
       <div className="patterns-judge-binary__band">BINARY · GUP</div>
-      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : "SELECT WINNER"}</div>
+      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : sending ? "SENDING" : sendError ? "SEND ERROR · RETRY" : "SELECT WINNER"}</div>
       <div className="patterns-judge-binary__joystick">
         {renderSide("hong", "HONG")}
         {renderSide("chong", "CHONG")}
       </div>
       <div className="patterns-judge-binary__send-wrap">
-        <AppButton className="patterns-judge-binary__send" style={vote && !sent ? styles.green : styles.gray} disabled={!vote || sent} onClick={onSend}>SEND</AppButton>
+        <AppButton className="patterns-judge-binary__send" style={vote && canSend && !sent && !sending ? styles.green : styles.gray} disabled={!vote || !canSend || sent || sending} onClick={onSend}>{sending ? "SENDING" : "SEND"}</AppButton>
       </div>
     </div>
   );
 }
 
-function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide }) {
-  const locked = !!judge.pattern.sent;
+function JudgePatternColorPanel({ judge, canSend, sending, sendError, onSelectValue, onSave, onToggleZeroSide }) {
+  const sent = !!judge.pattern.sent;
+  const locked = sent || sending;
   const hongZero = !!judge.pattern.hong.zero;
   const chongZero = !!judge.pattern.chong.zero;
 
   const totals = patternTotalsForJudge(judge);
+  const complete = isValidPointsSubmission(judge.pattern);
 
   const toggleValue = (side, field, value) => {
     if (locked) return;
@@ -899,7 +1038,7 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
   return (
     <div className="patterns-judge-points">
       <div className="patterns-judge-points__band">POINTS · GUP</div>
-      <div className={`patterns-judge-points__status${locked ? " is-sent" : ""}`}>{locked ? "SENT" : "SELECT SCORES"}</div>
+      <div className={`patterns-judge-points__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : sending ? "SENDING" : sendError ? "SEND ERROR · RETRY" : complete ? canSend ? "READY TO SEND" : "WAIT FOR START" : "COMPLETE BOTH SIDES"}</div>
 
       <div className="patterns-judge-points__joystick">
         <SidePanel side="hong" title={HONG} />
@@ -907,7 +1046,7 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
       </div>
 
       <div className="patterns-judge-points__send-wrap">
-        <AppButton className="patterns-judge-points__send" style={styles.green} onClick={onSave}>Guardar / Enviar</AppButton>
+        <AppButton className="patterns-judge-points__send" style={complete && canSend && !sent && !sending ? styles.green : styles.gray} disabled={!complete || !canSend || sent || sending} onClick={onSave}>{sending ? "ENVIANDO" : "Guardar / Enviar"}</AppButton>
       </div>
     </div>
   );
@@ -1034,7 +1173,7 @@ function PublicScreen({ meta, judges, navigate }) {
   const revealPointsVoting = !binaryMode
     && time === 0
     && publicJudges.length > 0
-    && publicJudges.every((judge) => judge.pattern?.sent === true);
+    && publicJudges.every((judge) => isCurrentPointsSubmission(meta, judge));
   const evaluationStatus = meta.patternResult?.completed
     ? "FINISHED"
     : revealBinaryVoting
@@ -1120,8 +1259,8 @@ function PublicScreen({ meta, judges, navigate }) {
                 {publicJudges.map((judge) => {
                   const binary = judge.pattern?.binary;
                   const sent = binaryMode
-                    ? binary?.sent === true && (binary.vote === "hong" || binary.vote === "chong")
-                    : !!judge.pattern?.sent;
+                    ? isCurrentBinarySubmission(meta, judge)
+                    : isCurrentPointsSubmission(meta, judge);
                   let revealedDecision = null;
                   if (binaryMode && revealBinaryVoting && sent) {
                     revealedDecision = binary.vote;
@@ -1178,7 +1317,7 @@ function PublicScreen({ meta, judges, navigate }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, navigate }) {
+function PresidentScreen({ meta, judges, writeMeta, prepareNextEvaluation, closePointsEvaluation, closeBinaryEvaluation, resetAll, navigate }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1203,13 +1342,27 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   const binary = binarySummary(meta, judges);
   const activeSummary = scoringMode === "binary" ? binary : p;
   const scoringModeLocked = currentJudges.some((judge) => {
-    if (scoringMode === "points") return !!judge.pattern?.sent;
-    const binaryVote = judge.pattern?.binary;
-    return binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong");
+    if (scoringMode === "points") return isCurrentPointsSubmission(meta, judge);
+    return isCurrentBinarySubmission(meta, judge);
   });
+  const configurationLocked = isConfigurationLocked(meta);
   const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
+  const [commandPending, setCommandPending] = useState(null);
+  const commandPendingRef = useRef(false);
   const editorSaveTimeoutRef = useRef(null);
   const { left, right } = getDisplaySides(meta, "president");
+
+  const runCriticalAction = async (name, action) => {
+    if (commandPendingRef.current) return;
+    commandPendingRef.current = true;
+    setCommandPending(name);
+    try {
+      return await action();
+    } finally {
+      commandPendingRef.current = false;
+      setCommandPending(null);
+    }
+  };
 
   useEffect(() => {
     const next = {
@@ -1229,6 +1382,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   }, [meta.hong?.name, meta.hong?.club, meta.chong?.name, meta.chong?.club]);
 
   const commitEditor = async (nextEditor) => {
+    const expectedEvaluationId = meta.evaluationId;
     const finalEditor = nextEditor || editorDraftRef.current;
     const unchanged =
       (meta.hong?.name || "") === finalEditor.hongName &&
@@ -1238,7 +1392,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
     if (unchanged) return;
 
-    await writeMeta((current) => ({
+    await writeMeta((current) => !isExpectedEvaluation(current, expectedEvaluationId) ? current : ({
       ...current,
       hong: {
         ...(current.hong || getBaseCompetitor(HONG)),
@@ -1297,8 +1451,10 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     if (meta.phase === "finished") return;
     if (time > 0) return;
 
+    const expectedEvaluationId = meta.evaluationId;
     const finishByTime = async () => {
       await writeMeta((current) => {
+        if (!isExpectedEvaluation(current, expectedEvaluationId)) return current;
         if (current.status !== "running") return current;
         current.status = "paused";
         current.phase = "finished";
@@ -1309,158 +1465,106 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     };
 
     finishByTime();
-  }, [meta.status, meta.phase, time, writeMeta]);
+  }, [meta.status, meta.phase, meta.evaluationId, time, writeMeta]);
 
   useEffect(() => {
     setSecondsInput(String(meta.config.roundSeconds || 120));
   }, [meta.config.roundSeconds]);
 
   const saveConfig = async ({ preserveRemaining = false } = {}) => {
-    const roundSeconds = Math.max(1, parseInt(secondsInput, 10) || 120);
+    if (configurationLocked) return;
+    const expectedEvaluationId = meta.evaluationId;
+    const parsedSeconds = Number(secondsInput);
+    const roundSeconds = Number.isSafeInteger(parsedSeconds) && parsedSeconds >= 1 ? parsedSeconds : 120;
 
-    await writeMeta((current) => ({
-      ...current,
-      config: {
-        ...(current.config || {}),
-        roundSeconds,
-      },
-      pausedRemaining: current.status === "paused" && current.phase === "fight" && !preserveRemaining
-        ? roundSeconds
-        : current.pausedRemaining,
-    }));
+    await writeMeta((current) => !isExpectedEvaluation(current, expectedEvaluationId) || isConfigurationLocked(current) ? current : ({
+        ...current,
+        config: { ...(current.config || {}), roundSeconds },
+        pausedRemaining: current.status === "paused" && current.phase === "fight" && !preserveRemaining
+          ? roundSeconds
+          : current.pausedRemaining,
+      }));
   };
 
   const setPatternJudgeCount = async (count) => {
-    await writeMeta((current) => ({
-      ...current,
-      config: {
-        ...(current.config || {}),
-        patternJudges: count,
-      },
-    }));
+    if (configurationLocked) return;
+    const expectedEvaluationId = meta.evaluationId;
+    await writeMeta((current) => !isExpectedEvaluation(current, expectedEvaluationId)
+      ? current
+      : applyJudgeCountChange(current, count).meta);
   };
 
   const setScoringMode = async (mode) => {
-    if (scoringModeLocked) return;
+    if (scoringModeLocked || configurationLocked) return;
+    const expectedEvaluationId = meta.evaluationId;
     const nextMode = mode === "binary" ? "binary" : "points";
-    await writeMeta((current) => ({
-      ...current,
-      config: {
-        ...(current.config || {}),
-        scoringMode: nextMode,
-      },
-    }));
+    await writeMeta((current) => !isExpectedEvaluation(current, expectedEvaluationId) || isConfigurationLocked(current) ? current : ({
+        ...current,
+        config: { ...(current.config || {}), scoringMode: nextMode },
+      }));
   };
 
   const startTimer = async () => {
-    const isResume = meta.status === "paused"
-      && meta.phase === "fight"
-      && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
-    await commitEditor(editorDraftRef.current);
-    await saveConfig({ preserveRemaining: isResume });
+    const expectedEvaluationId = meta.evaluationId;
+    return runCriticalAction("start", async () => {
+      const isResume = meta.status === "paused"
+        && meta.phase === "fight"
+        && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
+      await commitEditor(editorDraftRef.current);
+      await saveConfig({ preserveRemaining: isResume });
 
-    await writeMeta((current) => {
-      if (current.status === "running") return current;
-      if (current.phase === "finished" || Number(current.pausedRemaining) <= 0) return current;
-
-      return {
-        ...current,
-        status: "running",
-        phaseStartedAt: Date.now(),
-      };
+      await writeMeta((current) => {
+        if (!isExpectedEvaluation(current, expectedEvaluationId)) return current;
+        if (current.status === "running") return current;
+        if (current.patternResult?.completed || current.phase === "finished" || Number(current.pausedRemaining) <= 0) return current;
+        return { ...current, evaluationStarted: true, status: "running", phaseStartedAt: Date.now() };
+      });
     });
   };
 
   const pauseTimer = async () => {
-    await writeMeta((current) => {
-      if (current.status !== "running") return current;
-      current.pausedRemaining = getDerivedTime(current, Date.now());
-      current.status = "paused";
-      current.phaseStartedAt = null;
-      return current;
-    });
+    const expectedEvaluationId = meta.evaluationId;
+    return runCriticalAction("pause", () => writeMeta((current) => {
+        if (!isExpectedEvaluation(current, expectedEvaluationId)) return current;
+        if (current.status !== "running" || current.patternResult?.completed) return current;
+        current.pausedRemaining = getDerivedTime(current, Date.now());
+        current.status = "paused";
+        current.phaseStartedAt = null;
+        return current;
+      }));
   };
 
   const closePatternEvaluation = async () => {
-    if (getScoringMode(meta) === "binary") {
-      const metaSnapshot = await getDoc(matchMetaRef);
-      const persistedMeta = ensureMetaShape(metaSnapshot.exists() ? metaSnapshot.data() : meta);
-      const persistedJudges = Array.from({ length: MAX_JUDGES }, (_, index) => makeJudge(index + 1));
-      const judgesSnapshot = await getDocs(query(judgesColRef));
-      judgesSnapshot.forEach((judgeDocument) => {
-        const index = Number(judgeDocument.id) - 1;
-        if (index >= 0 && index < MAX_JUDGES) {
-          persistedJudges[index] = normalizeJudge(judgeDocument.data(), index + 1);
-        }
-      });
-      const live = binarySummary(persistedMeta, persistedJudges);
-      if (getScoringMode(persistedMeta) !== "binary" || !live.allSent || (live.winner !== "hong" && live.winner !== "chong")) {
-        console.error("Cannot close Binary evaluation: incomplete or inconsistent votes.", live);
-        return;
-      }
-
-      await writeMeta((current) => {
-        current.patternResult = {
-          ...(current.patternResult || makeEmptyPatternResult()),
-          scoringMode: "binary",
-          binary: {
-            hongVotes: live.hong,
-            chongVotes: live.chong,
-            sent: live.sent,
-            majorityRequired: live.majorityRequired,
-          },
-          completed: true,
-          winner: live.winner,
-        };
-        current.status = "paused";
-        current.phase = "finished";
-        current.phaseStartedAt = null;
-        current.pausedRemaining = 0;
-        return current;
-      });
-      return;
-    }
-
-    const live = patternSummary(meta, judges);
-
-    await writeMeta((current) => {
-      current.patternResult = {
-        hong: live.hong,
-        chong: live.chong,
-        sent: live.sent,
-        completed: true,
-        winner: live.winner,
-      };
-
-      current.status = "paused";
-      current.phase = "finished";
-      current.phaseStartedAt = null;
-      current.pausedRemaining = 0;
-      return current;
+    return runCriticalAction("close", async () => {
+      if (getScoringMode(meta) === "binary") return closeBinaryEvaluation(meta.evaluationId);
+      return closePointsEvaluation(meta.evaluationId);
     });
   };
 
   const prepareNextMatch = async () => {
-    for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await writeJudge(i, () => makeJudge(i));
-    }
-
-    await writeMeta((current) => {
-      const roundSeconds = current.config.roundSeconds || 120;
-      current.mode = "pattern";
-      current.status = "paused";
-      current.phase = "fight";
-      current.round = 1;
-      current.phaseStartedAt = null;
-      current.pausedRemaining = roundSeconds;
-      current.patternResult = makeEmptyPatternResult();
-      return current;
-    });
+    return runCriticalAction("next", prepareNextEvaluation);
   };
+
+  const resetEvaluation = async () => runCriticalAction("reset", () => resetAll(meta.evaluationId));
+
+  const swapPublicSides = async () => runCriticalAction("swap-public", () => writeMeta((current) => {
+    current.publicSwapSides = !current.publicSwapSides;
+    return current;
+  }));
+
+  const swapPresidentSides = async () => runCriticalAction("swap-president", () => writeMeta((current) => {
+    current.presidentSwapSides = !current.presidentSwapSides;
+    return current;
+  }));
 
   const applyPatternForcedWinner = async (winner) => {
     if (getScoringMode(meta) === "binary" && winner === "draw") return;
-    await writeMeta((current) => {
+    if (meta.patternResult?.completed) return;
+    const expectedEvaluationId = meta.evaluationId;
+    return runCriticalAction("forced", () => writeMeta((current) => {
+      if (!isExpectedEvaluation(current, expectedEvaluationId)) return current;
+      if (current.patternResult?.completed) return current;
+      if (getScoringMode(current) === "binary" && winner === "draw") return current;
       current.patternResult = {
         ...current.patternResult,
         ...(getScoringMode(current) === "binary" ? { scoringMode: "binary" } : {}),
@@ -1472,7 +1576,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
       current.pausedRemaining = 0;
       current.phaseStartedAt = null;
       return current;
-    });
+    }));
   };
 
   const updateCompetitor = async (side, field, value) => {
@@ -1500,19 +1604,21 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
         <header className="patterns-president__header">
           <nav className="patterns-president__actions" aria-label="President controls">
             <AppButton className="patterns-president__action patterns-president__action--home" style={styles.gray} onClick={() => navigate("/")}><span aria-hidden="true">⌂</span> HOME</AppButton>
-            <AppButton className="patterns-president__action patterns-president__action--next" style={styles.green} onClick={prepareNextMatch}><span aria-hidden="true">→</span> NEXT</AppButton>
-            <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} onClick={resetAll}><span aria-hidden="true">↻</span> RESET</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--next" style={styles.green} disabled={!!commandPending || !meta.patternResult?.completed} onClick={prepareNextMatch}><span aria-hidden="true">→</span> NEXT</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} disabled={!!commandPending} onClick={resetEvaluation}><span aria-hidden="true">↻</span> RESET</AppButton>
             <AppButton
               className={`patterns-president__action patterns-president__action--swap${meta.publicSwapSides ? " patterns-president__action--active" : ""}`}
               style={styles.purple}
-              onClick={() => writeMeta((c) => { c.publicSwapSides = !c.publicSwapSides; return c; })}
+              disabled={!!commandPending}
+              onClick={swapPublicSides}
             >
               <span aria-hidden="true">⇄</span> SWAP PUBLIC
             </AppButton>
             <AppButton
               className={`patterns-president__action patterns-president__action--swap${meta.presidentSwapSides ? " patterns-president__action--active" : ""}`}
               style={styles.purple}
-              onClick={() => writeMeta((c) => { c.presidentSwapSides = !c.presidentSwapSides; return c; })}
+              disabled={!!commandPending}
+              onClick={swapPresidentSides}
             >
               <span aria-hidden="true">⇄</span> SWAP PRESIDENT
             </AppButton>
@@ -1573,13 +1679,14 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
           <div className="patterns-president__panel patterns-president__settings">
             <h2>EVALUATION SETTINGS</h2>
             <div className="patterns-president__settings-main">
-              <input type="number" min="1" value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} aria-label="Evaluation time in seconds" />
+              <input type="number" min="1" disabled={configurationLocked || !!commandPending} value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} aria-label="Evaluation time in seconds" />
               <div className="patterns-president__presets">
                 {[60, 90, 120, 180, 300].map((seconds) => (
                   <AppButton
                     key={seconds}
                     className={`patterns-president__preset${String(secondsInput) === String(seconds) ? " is-active" : ""}`}
                     style={styles.gray}
+                    disabled={configurationLocked || !!commandPending}
                     onClick={() => setSecondsInput(String(seconds))}
                   >
                     {seconds}
@@ -1588,13 +1695,13 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
               </div>
             </div>
             <div className="patterns-president__settings-actions">
-              <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
-              <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
-              <AppButton style={styles.blue} onClick={saveConfig}>SAVE CONFIG</AppButton>
+              <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} disabled={configurationLocked || !!commandPending} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
+              <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} disabled={configurationLocked || !!commandPending} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
+              <AppButton style={styles.blue} disabled={configurationLocked || !!commandPending} onClick={saveConfig}>SAVE CONFIG</AppButton>
               <div className="patterns-president__scoring-mode">
                 <span>SCORING MODE</span>
-                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--points${scoringMode === "points" ? " is-active" : ""}`} disabled={scoringModeLocked} onClick={() => setScoringMode("points")}>POINTS</AppButton>
-                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--binary${scoringMode === "binary" ? " is-active" : ""}`} disabled={scoringModeLocked} onClick={() => setScoringMode("binary")}>BINARY</AppButton>
+                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--points${scoringMode === "points" ? " is-active" : ""}`} disabled={scoringModeLocked || configurationLocked || !!commandPending} onClick={() => setScoringMode("points")}>POINTS</AppButton>
+                <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--binary${scoringMode === "binary" ? " is-active" : ""}`} disabled={scoringModeLocked || configurationLocked || !!commandPending} onClick={() => setScoringMode("binary")}>BINARY</AppButton>
               </div>
             </div>
           </div>
@@ -1602,9 +1709,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
           <div className="patterns-president__panel patterns-president__match-control">
             <h2>MATCH CONTROL</h2>
             <div>
-              <AppButton style={styles.green} onClick={startTimer}><span aria-hidden="true">▶</span> START</AppButton>
-              <AppButton style={styles.amber} onClick={pauseTimer}><span aria-hidden="true">Ⅱ</span> PAUSE</AppButton>
-              <AppButton style={styles.blue} disabled={scoringMode === "binary" ? !binary.allSent : p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
+              <AppButton style={styles.green} disabled={!!commandPending || meta.status === "running" || meta.phase === "finished" || meta.patternResult?.completed || Number(meta.pausedRemaining) <= 0} onClick={startTimer}><span aria-hidden="true">▶</span> START</AppButton>
+              <AppButton style={styles.amber} disabled={!!commandPending || meta.status !== "running" || meta.patternResult?.completed} onClick={pauseTimer}><span aria-hidden="true">Ⅱ</span> PAUSE</AppButton>
+              <AppButton style={styles.blue} disabled={!!commandPending || !canCloseEvaluation({ time, allSent: scoringMode === "binary" ? binary.allSent : p.sent === activeJudgeCount(meta), completed: meta.patternResult?.completed })} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
             </div>
           </div>
         </section>
@@ -1614,8 +1721,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             const totals = patternTotalsForJudge(judge);
             const binaryVote = judge.pattern?.binary;
             const sent = scoringMode === "binary"
-              ? binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong")
-              : !!judge.pattern?.sent;
+              ? isCurrentBinarySubmission(meta, judge)
+              : isCurrentPointsSubmission(meta, judge);
             return (
               <article className={`patterns-president__judge${sent ? " is-sent" : " is-pending"}`} key={judge.id}>
                 <div className="patterns-president__judge-heading">
@@ -1661,9 +1768,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
           <div className="patterns-president__secondary">
             <span>FORCED DECISION</span>
-            <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
-            <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
-            <AppButton style={styles.gray} disabled={scoringMode === "binary"} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
+            <AppButton style={styles.red} disabled={!!commandPending || meta.patternResult?.completed} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
+            <AppButton style={styles.blue} disabled={!!commandPending || meta.patternResult?.completed} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
+            <AppButton style={styles.gray} disabled={!!commandPending || meta.patternResult?.completed || scoringMode === "binary"} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
             <details>
               <summary>QR ACCESS</summary>
               <div className="patterns-president__qr-overlay">
@@ -1694,7 +1801,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   );
 }
 
-function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
+function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, navigate }) {
   useWakeLock();
   const time = useClock(meta);
   const prevFinishedRef = useRef(false);
@@ -1707,30 +1814,29 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
     prevFinishedRef.current = isFinished;
   }, [meta.patternResult?.completed]);
 
-  if (judgeId > activeJudgeCount(meta)) {
-    return (
-      <div style={styles.page}>
-        <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
-        <BrandHeaderSmall />
-        <h1>Juez {judgeId}</h1>
-        <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
-      </div>
-    );
-  }
-
   const judge = judges.find((j) => j.id === judgeId) || makeJudge(judgeId);
   const [localPattern, setLocalPattern] = useState(() => clone(judge.pattern));
   const [localBinaryVote, setLocalBinaryVote] = useState(() => judge.pattern.binary.vote);
   const [localBinarySent, setLocalBinarySent] = useState(() => !!judge.pattern.binary.sent);
+  const [pointsSendState, setPointsSendState] = useState(judge.pattern.sent ? "sent" : "idle");
+  const [binarySendState, setBinarySendState] = useState(judge.pattern.binary.sent ? "sent" : "idle");
+  const pointsSendingRef = useRef(false);
+  const binarySendingRef = useRef(false);
+  const serializedJudgePattern = JSON.stringify(judge.pattern);
+  const persistedPointsSent = isCurrentPointsSubmission(meta, judge);
+  const persistedBinaryVote = judge.pattern.binary.vote;
+  const persistedBinarySent = isCurrentBinarySubmission(meta, judge);
 
   useEffect(() => {
-    setLocalPattern(clone(judge.pattern));
-  }, [judgeId, JSON.stringify(judge.pattern)]);
+    setLocalPattern(JSON.parse(serializedJudgePattern));
+    setPointsSendState(persistedPointsSent ? "sent" : "idle");
+  }, [judgeId, meta.evaluationId, serializedJudgePattern, persistedPointsSent]);
 
   useEffect(() => {
-    setLocalBinaryVote(judge.pattern.binary.vote);
-    setLocalBinarySent(!!judge.pattern.binary.sent);
-  }, [judgeId, judge.pattern.binary.vote, judge.pattern.binary.sent]);
+    setLocalBinaryVote(persistedBinaryVote);
+    setLocalBinarySent(persistedBinarySent);
+    setBinarySendState(persistedBinarySent ? "sent" : "idle");
+  }, [judgeId, meta.evaluationId, persistedBinaryVote, persistedBinarySent]);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -1761,40 +1867,52 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   };
 
   const savePattern = async () => {
-    const nextJudge = await writeJudge(judgeId, (j) => {
-      j.pattern = {
-        ...j.pattern,
-        hong: { ...localPattern.hong },
-        chong: { ...localPattern.chong },
-        sent: true,
-      };
-      return j;
-    });
-
-    setLocalPattern(clone(nextJudge.pattern));
+    if (pointsSendingRef.current || !isValidPointsSubmission(localPattern)) return;
+    pointsSendingRef.current = true;
+    setPointsSendState("sending");
+    try {
+      const result = await submitPoints(judgeId, meta.evaluationId, localPattern);
+      if (result.status === "accepted" || result.status === "already_sent") {
+        setLocalPattern(clone(result.judge.pattern));
+        setPointsSendState("sent");
+      } else {
+        setPointsSendState("error");
+      }
+    } catch {
+      setPointsSendState("error");
+    } finally {
+      pointsSendingRef.current = false;
+    }
   };
 
   const saveBinaryVote = async () => {
-    if (!localBinaryVote || localBinarySent) return;
-    const nextJudge = await writeJudge(judgeId, (j) => {
-      if (j.pattern?.binary?.sent) return j;
-      j.pattern = {
-        ...j.pattern,
-        binary: {
-          vote: localBinaryVote,
-          sent: true,
-        },
-      };
-      return j;
-    });
-    setLocalBinaryVote(nextJudge.pattern.binary.vote);
-    setLocalBinarySent(!!nextJudge.pattern.binary.sent);
+    if (!localBinaryVote || localBinarySent || binarySendingRef.current) return;
+    binarySendingRef.current = true;
+    setBinarySendState("sending");
+    try {
+      const result = await submitBinary(judgeId, meta.evaluationId, localBinaryVote);
+      if (result.status === "accepted" || result.status === "already_sent") {
+        setLocalBinaryVote(result.judge.pattern.binary.vote);
+        setLocalBinarySent(true);
+        setBinarySendState("sent");
+      } else {
+        setBinarySendState("error");
+      }
+    } catch {
+      setBinarySendState("error");
+    } finally {
+      binarySendingRef.current = false;
+    }
   };
 
   const judgeWinner = meta.patternResult?.winner;
   const showJudgeWinner = !!meta.patternResult?.completed;
   const judgePreview = { ...judge, pattern: localPattern };
   const scoringMode = getScoringMode(meta);
+  const currentGeneration = normalizeEvaluationId(meta.evaluationId);
+  const pointsGenerationMatches = normalizeEvaluationId(localPattern.evaluationId) === currentGeneration;
+  const binaryGenerationMatches = normalizeEvaluationId(judge.pattern.binary.evaluationId) === currentGeneration;
+  const evaluationAcceptsVotes = meta.evaluationStarted === true && meta.patternResult?.completed !== true;
   const judgeStatus = meta.phase === "finished"
     ? "FINISHED"
     : meta.status === "running"
@@ -1804,6 +1922,17 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
           && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds)
         ? "PAUSED"
         : "READY";
+
+  if (judgeId > activeJudgeCount(meta)) {
+    return (
+      <div style={styles.page}>
+        <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
+        <BrandHeaderSmall />
+        <h1>Juez {judgeId}</h1>
+        <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
+      </div>
+    );
+  }
 
   return (
     <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : "patterns-judge-page patterns-judge-page--points"} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
@@ -1840,11 +1969,22 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
           <JudgePatternBinaryPanel
             vote={localBinaryVote}
             sent={localBinarySent}
+            sending={binarySendState === "sending"}
+            sendError={binarySendState === "error"}
+            canSend={evaluationAcceptsVotes && binaryGenerationMatches}
             onSelect={setLocalBinaryVote}
             onSend={saveBinaryVote}
           />
         ) : (
-          <JudgePatternColorPanel judge={judgePreview} onSelectValue={selectPatternValue} onSave={savePattern} onToggleZeroSide={togglePatternZeroSide} />
+          <JudgePatternColorPanel
+            judge={judgePreview}
+            canSend={evaluationAcceptsVotes && pointsGenerationMatches}
+            sending={pointsSendState === "sending"}
+            sendError={pointsSendState === "error"}
+            onSelectValue={selectPatternValue}
+            onSave={savePattern}
+            onToggleZeroSide={togglePatternZeroSide}
+          />
         )}
       </div>
 
@@ -1854,7 +1994,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
 }
 
 export default function App() {
-  const { meta, judges, writeMeta, writeJudge, resetAll } = useFightData();
+  const { meta, judges, writeMeta, submitPoints, submitBinary, prepareNextEvaluation, closePointsEvaluation, closeBinaryEvaluation, resetAll } = useFightData();
   const { path, navigate } = useRoute();
 
   useEffect(() => {
@@ -1883,7 +2023,9 @@ export default function App() {
         meta={meta}
         judges={judges}
         writeMeta={writeMeta}
-        writeJudge={writeJudge}
+        prepareNextEvaluation={prepareNextEvaluation}
+        closePointsEvaluation={closePointsEvaluation}
+        closeBinaryEvaluation={closeBinaryEvaluation}
         resetAll={resetAll}
         navigate={navigate}
       /></>
@@ -1901,7 +2043,8 @@ export default function App() {
         <><GlobalAppStyle /><JudgeScreen
           meta={meta}
           judges={judges}
-          writeJudge={writeJudge}
+          submitPoints={submitPoints}
+          submitBinary={submitBinary}
           judgeId={n}
           navigate={navigate}
         /></>

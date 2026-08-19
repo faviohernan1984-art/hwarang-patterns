@@ -9,6 +9,7 @@ export function binarySummary(meta, judges) {
   currentJudges.forEach((judge) => {
     const binary = judge.pattern?.binary;
     if (binary?.sent !== true) return;
+    if (Number.isSafeInteger(meta?.evaluationId) && binary.evaluationId !== meta.evaluationId) return;
     if (binary.vote === "hong") hong += 1;
     if (binary.vote === "chong") chong += 1;
   });

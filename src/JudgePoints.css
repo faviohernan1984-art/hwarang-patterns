@@ -327,6 +327,19 @@
   box-shadow: 0 0 15px rgba(255, 0, 0, 0.2) !important;
 }
 
+.patterns-judge-points__send:not(:disabled) {
+  border-color: rgba(74, 222, 128, 0.78) !important;
+  background: rgba(20, 83, 45, 0.78) !important;
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.42) !important;
+}
+
+.patterns-judge-points__send:disabled {
+  opacity: 0.42;
+  cursor: not-allowed !important;
+  filter: saturate(0.35) brightness(0.72);
+  box-shadow: none !important;
+}
+
 .patterns-judge-page--points,
 .patterns-judge-points__brand small,
 .patterns-judge-points__title,
