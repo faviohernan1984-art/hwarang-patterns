@@ -1,5 +1,6 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   onSnapshot,
   runTransaction,
@@ -12,6 +13,7 @@ import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { useWakeLock } from "./useWakeLock";
+import { isCurrentSendOperation, sendStatusLabel } from "./sendRecovery";
 import {
   applyFirstBinarySubmission,
   applyFirstPointsSubmission,
@@ -22,6 +24,8 @@ import {
   isEvaluationOpen,
   isExpectedEvaluation,
   isValidPointsSubmission,
+  isValidEvaluationId,
+  isValidMetaDocument,
   makeEmptyResult,
   makeFreshJudge,
   makeNextEvaluationMeta,
@@ -270,7 +274,7 @@ function ensureMetaShape(raw) {
     ...base,
     ...current,
     config,
-    evaluationId: normalizeEvaluationId(current.evaluationId),
+    evaluationId: isValidEvaluationId(current.evaluationId) ? current.evaluationId : null,
     evaluationStarted: Object.prototype.hasOwnProperty.call(current, "evaluationStarted")
       ? current.evaluationStarted === true
       : legacyEvaluationStarted,
@@ -342,7 +346,8 @@ function patternTotalsForJudge(judge) {
 
 function isCurrentPointsSubmission(meta, judge) {
   return judge?.pattern?.sent === true
-    && normalizeEvaluationId(judge.pattern.evaluationId) === normalizeEvaluationId(meta?.evaluationId)
+    && isValidEvaluationId(meta?.evaluationId)
+    && judge.pattern.evaluationId === meta.evaluationId
     && isValidPointsSubmission(judge.pattern);
 }
 
@@ -350,7 +355,8 @@ function isCurrentBinarySubmission(meta, judge) {
   const binary = judge?.pattern?.binary;
   return binary?.sent === true
     && (binary.vote === "hong" || binary.vote === "chong")
-    && normalizeEvaluationId(binary.evaluationId) === normalizeEvaluationId(meta?.evaluationId);
+    && isValidEvaluationId(meta?.evaluationId)
+    && binary.evaluationId === meta.evaluationId;
 }
 
 function patternSummary(meta, judges) {
@@ -430,7 +436,9 @@ function useFightData() {
   const writeMeta = async (mutator) => {
     return runTransaction(db, async (transaction) => {
       const snap = await transaction.get(matchMetaRef);
-      const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
+      const raw = snap.exists() ? snap.data() : makeInitialMeta();
+      const current = ensureMetaShape(raw);
+      if (!isValidMetaDocument(raw)) return { ...current, integrityError: true };
       const draft = clone(current);
       const result = typeof mutator === "function" ? mutator(draft) : mutator;
       const next = ensureMetaShape(result ?? draft);
@@ -445,7 +453,9 @@ function useFightData() {
     return runTransaction(db, async (transaction) => {
       const metaSnap = await transaction.get(matchMetaRef);
       const judgeSnap = await transaction.get(ref);
-      const currentMeta = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+      const rawMeta = metaSnap.exists() ? metaSnap.data() : makeInitialMeta();
+      const currentMeta = ensureMetaShape(rawMeta);
+      if (!isValidMetaDocument(rawMeta)) return { status: "invalid_meta", judge: judgeSnap.exists() ? normalizeJudge(judgeSnap.data(), id) : makeJudge(id, 1) };
       const generation = normalizeEvaluationId(currentMeta.evaluationId);
       const currentJudge = judgeSnap.exists()
         ? normalizeJudge(judgeSnap.data(), id)
@@ -468,7 +478,9 @@ function useFightData() {
     return runTransaction(db, async (transaction) => {
       const metaSnap = await transaction.get(matchMetaRef);
       const judgeSnap = await transaction.get(ref);
-      const currentMeta = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+      const rawMeta = metaSnap.exists() ? metaSnap.data() : makeInitialMeta();
+      const currentMeta = ensureMetaShape(rawMeta);
+      if (!isValidMetaDocument(rawMeta)) return { status: "invalid_meta", judge: judgeSnap.exists() ? normalizeJudge(judgeSnap.data(), id) : makeJudge(id, 1) };
       const generation = normalizeEvaluationId(currentMeta.evaluationId);
       const currentJudge = judgeSnap.exists()
         ? normalizeJudge(judgeSnap.data(), id)
@@ -488,7 +500,9 @@ function useFightData() {
 
   const prepareNextEvaluation = async () => runTransaction(db, async (transaction) => {
     const metaSnap = await transaction.get(matchMetaRef);
-    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const raw = metaSnap.exists() ? metaSnap.data() : makeInitialMeta();
+    const current = ensureMetaShape(raw);
+    if (!isValidMetaDocument(raw)) return { status: "invalid_meta", meta: current };
     if (!canPrepareNext(current)) return { status: "not_completed", meta: current };
     const next = makeNextEvaluationMeta(current);
     next.updatedAt = Date.now();
@@ -501,7 +515,9 @@ function useFightData() {
 
   const closePointsEvaluation = async (evaluationId) => runTransaction(db, async (transaction) => {
     const metaSnap = await transaction.get(matchMetaRef);
-    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const raw = metaSnap.exists() ? metaSnap.data() : makeInitialMeta();
+    const current = ensureMetaShape(raw);
+    if (!isValidMetaDocument(raw)) return { status: "invalid_meta" };
     const judgeCount = activeJudgeCount(current);
     const judgeSnapshots = [];
     for (let i = 1; i <= judgeCount; i += 1) judgeSnapshots.push(await transaction.get(judgeRef(i)));
@@ -536,7 +552,9 @@ function useFightData() {
 
   const closeBinaryEvaluation = async (evaluationId) => runTransaction(db, async (transaction) => {
     const metaSnap = await transaction.get(matchMetaRef);
-    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const raw = metaSnap.exists() ? metaSnap.data() : makeInitialMeta();
+    const current = ensureMetaShape(raw);
+    if (!isValidMetaDocument(raw)) return { status: "invalid_meta" };
     const judgeCount = activeJudgeCount(current);
     const judgeSnapshots = [];
     for (let i = 1; i <= judgeCount; i += 1) judgeSnapshots.push(await transaction.get(judgeRef(i)));
@@ -575,7 +593,9 @@ function useFightData() {
     return runTransaction(db, async (transaction) => {
       const metaSnap = await transaction.get(matchMetaRef);
       const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
-      if (!isExpectedEvaluation(current, evaluationId)) return { status: "stale_generation", meta: current };
+      const matchesValidGeneration = isExpectedEvaluation(current, evaluationId);
+      const matchesCorruptGeneration = !isValidEvaluationId(current.evaluationId) && current.evaluationId === evaluationId;
+      if (!matchesValidGeneration && !matchesCorruptGeneration) return { status: "stale_generation", meta: current };
       const next = makeResetEvaluationMeta(current);
       next.updatedAt = Date.now();
       transaction.set(matchMetaRef, next);
@@ -751,7 +771,7 @@ function AppButton({ children, style = {}, onClick, feedback = "ui", ...props })
   );
 }
 
-function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "public", onClose }) {
+function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "public", onClose, overlayBackground = "rgba(0,0,0,0.90)" }) {
   if (combatClone) {
     if (winner !== "hong" && winner !== "chong" && winner !== "draw") return null;
 
@@ -781,7 +801,7 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "rgba(0,0,0,0.90)",
+          background: overlayBackground,
         }}
       >
         <div style={{ textAlign: "center", width: "100%", transform: "translateY(-50px)" }}>
@@ -924,6 +944,74 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
   );
 }
 
+function ViewportWinnerOverlay({ winner, mode = "public", onClose }) {
+  const stageRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const baseWidth = 1920;
+  const baseHeight = 1080;
+  const overlayBackground = "rgba(0,0,0,0.90)";
+
+  useLayoutEffect(() => {
+    const stageHost = stageRef.current;
+    if (!stageHost) return undefined;
+    const recalc = () => {
+      const nextScale = Math.min(
+        stageHost.clientWidth / baseWidth,
+        stageHost.clientHeight / baseHeight
+      );
+      setScale(Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1);
+    };
+    recalc();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(recalc) : null;
+    observer?.observe(stageHost);
+    window.addEventListener("resize", recalc);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", recalc);
+    };
+  }, []);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100000,
+        width: "100vw",
+        height: "100dvh",
+        overflow: "hidden",
+        background: overlayBackground,
+      }}
+      ref={stageRef}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          width: baseWidth,
+          height: baseHeight,
+          overflow: "hidden",
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: "center center",
+        }}
+      >
+        <WinnerFullScreen
+          winner={winner}
+          zIndex={0}
+          combatClone
+          mode={mode}
+          onClose={onClose}
+          overlayBackground="transparent"
+        />
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function ScoreChoice({ selected, value, onClick, disabled }) {
   return (
     <button
@@ -957,7 +1045,7 @@ function ZeroAbsoluteButton({ active, disabled, onClick, label, bg }) {
   );
 }
 
-function JudgePatternBinaryPanel({ vote, sent, sending, canSend, sendError, onSelect, onSend }) {
+function JudgePatternBinaryPanel({ vote, sent, sending, sendDelayed, canSend, sendError, onSelect, onSend }) {
   const renderSide = (side, label) => {
     const selected = vote === side;
     return (
@@ -980,7 +1068,7 @@ function JudgePatternBinaryPanel({ vote, sent, sending, canSend, sendError, onSe
   return (
     <div className="patterns-judge-binary">
       <div className="patterns-judge-binary__band">BINARY · GUP</div>
-      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : sending ? "SENDING" : sendError ? "SEND ERROR · RETRY" : "SELECT WINNER"}</div>
+      <div className={`patterns-judge-binary__status${sent ? " is-sent" : ""}`}>{sendStatusLabel({ sent, sending, delayed: sendDelayed, error: sendError }) || "SELECT WINNER"}</div>
       <div className="patterns-judge-binary__joystick">
         {renderSide("hong", "HONG")}
         {renderSide("chong", "CHONG")}
@@ -992,7 +1080,7 @@ function JudgePatternBinaryPanel({ vote, sent, sending, canSend, sendError, onSe
   );
 }
 
-function JudgePatternColorPanel({ judge, canSend, sending, sendError, onSelectValue, onSave, onToggleZeroSide }) {
+function JudgePatternColorPanel({ judge, canSend, sending, sendDelayed, sendError, onSelectValue, onSave, onToggleZeroSide }) {
   const sent = !!judge.pattern.sent;
   const locked = sent || sending;
   const hongZero = !!judge.pattern.hong.zero;
@@ -1038,7 +1126,7 @@ function JudgePatternColorPanel({ judge, canSend, sending, sendError, onSelectVa
   return (
     <div className="patterns-judge-points">
       <div className="patterns-judge-points__band">POINTS · GUP</div>
-      <div className={`patterns-judge-points__status${sent ? " is-sent" : ""}`}>{sent ? "SENT" : sending ? "SENDING" : sendError ? "SEND ERROR · RETRY" : complete ? canSend ? "READY TO SEND" : "WAIT FOR START" : "COMPLETE BOTH SIDES"}</div>
+      <div className={`patterns-judge-points__status${sent ? " is-sent" : ""}`}>{sendStatusLabel({ sent, sending, delayed: sendDelayed, error: sendError }) || (complete ? canSend ? "READY TO SEND" : "WAIT FOR START" : "COMPLETE BOTH SIDES")}</div>
 
       <div className="patterns-judge-points__joystick">
         <SidePanel side="hong" title={HONG} />
@@ -1046,7 +1134,7 @@ function JudgePatternColorPanel({ judge, canSend, sending, sendError, onSelectVa
       </div>
 
       <div className="patterns-judge-points__send-wrap">
-        <AppButton className="patterns-judge-points__send" style={complete && canSend && !sent && !sending ? styles.green : styles.gray} disabled={!complete || !canSend || sent || sending} onClick={onSave}>{sending ? "ENVIANDO" : "Guardar / Enviar"}</AppButton>
+        <AppButton className="patterns-judge-points__send" style={complete && canSend && !sent && !sending ? styles.green : styles.gray} disabled={!complete || !canSend || sent || sending} onClick={onSave}>{sending ? "SENDING" : "SAVE / SEND"}</AppButton>
       </div>
     </div>
   );
@@ -1307,11 +1395,7 @@ function PublicScreen({ meta, judges, navigate }) {
       </main>
 
       {!!meta.patternResult?.completed && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
-          <Frame16x9>
-            <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} combatClone />
-          </Frame16x9>
-        </div>
+        <ViewportWinnerOverlay winner={meta.patternResult?.winner} />
       )}
     </>
   );
@@ -1788,10 +1872,8 @@ function PresidentScreen({ meta, judges, writeMeta, prepareNextEvaluation, close
         </section>
 
         {showPresidentWinner && !hidePresidentWinner && (
-          <WinnerFullScreen
+          <ViewportWinnerOverlay
             winner={meta.patternResult.winner}
-            zIndex={100}
-            combatClone
             mode="president"
             onClose={() => setHidePresidentWinner(true)}
           />
@@ -1820,8 +1902,14 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
   const [localBinarySent, setLocalBinarySent] = useState(() => !!judge.pattern.binary.sent);
   const [pointsSendState, setPointsSendState] = useState(judge.pattern.sent ? "sent" : "idle");
   const [binarySendState, setBinarySendState] = useState(judge.pattern.binary.sent ? "sent" : "idle");
+  const [pointsSendDelayed, setPointsSendDelayed] = useState(false);
+  const [binarySendDelayed, setBinarySendDelayed] = useState(false);
   const pointsSendingRef = useRef(false);
   const binarySendingRef = useRef(false);
+  const pointsOperationRef = useRef(0);
+  const binaryOperationRef = useRef(0);
+  const pointsWatchdogRef = useRef(null);
+  const binaryWatchdogRef = useRef(null);
   const serializedJudgePattern = JSON.stringify(judge.pattern);
   const persistedPointsSent = isCurrentPointsSubmission(meta, judge);
   const persistedBinaryVote = judge.pattern.binary.vote;
@@ -1830,13 +1918,41 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
   useEffect(() => {
     setLocalPattern(JSON.parse(serializedJudgePattern));
     setPointsSendState(persistedPointsSent ? "sent" : "idle");
+    if (persistedPointsSent) {
+      pointsOperationRef.current += 1;
+      pointsSendingRef.current = false;
+      setPointsSendDelayed(false);
+      if (pointsWatchdogRef.current) clearTimeout(pointsWatchdogRef.current);
+    }
   }, [judgeId, meta.evaluationId, serializedJudgePattern, persistedPointsSent]);
 
   useEffect(() => {
     setLocalBinaryVote(persistedBinaryVote);
     setLocalBinarySent(persistedBinarySent);
     setBinarySendState(persistedBinarySent ? "sent" : "idle");
+    if (persistedBinarySent) {
+      binaryOperationRef.current += 1;
+      binarySendingRef.current = false;
+      setBinarySendDelayed(false);
+      if (binaryWatchdogRef.current) clearTimeout(binaryWatchdogRef.current);
+    }
   }, [judgeId, meta.evaluationId, persistedBinaryVote, persistedBinarySent]);
+
+  useEffect(() => {
+    pointsOperationRef.current += 1;
+    binaryOperationRef.current += 1;
+    pointsSendingRef.current = false;
+    binarySendingRef.current = false;
+    setPointsSendDelayed(false);
+    setBinarySendDelayed(false);
+    if (pointsWatchdogRef.current) clearTimeout(pointsWatchdogRef.current);
+    if (binaryWatchdogRef.current) clearTimeout(binaryWatchdogRef.current);
+  }, [judgeId, meta.evaluationId]);
+
+  useEffect(() => () => {
+    if (pointsWatchdogRef.current) clearTimeout(pointsWatchdogRef.current);
+    if (binaryWatchdogRef.current) clearTimeout(binaryWatchdogRef.current);
+  }, []);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -1869,9 +1985,18 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
   const savePattern = async () => {
     if (pointsSendingRef.current || !isValidPointsSubmission(localPattern)) return;
     pointsSendingRef.current = true;
+    const operationToken = pointsOperationRef.current + 1;
+    pointsOperationRef.current = operationToken;
+    setPointsSendDelayed(false);
     setPointsSendState("sending");
+    pointsWatchdogRef.current = setTimeout(() => {
+      if (isCurrentSendOperation(pointsOperationRef.current, operationToken) && pointsSendingRef.current) {
+        setPointsSendDelayed(true);
+      }
+    }, 8000);
     try {
       const result = await submitPoints(judgeId, meta.evaluationId, localPattern);
+      if (!isCurrentSendOperation(pointsOperationRef.current, operationToken)) return;
       if (result.status === "accepted" || result.status === "already_sent") {
         setLocalPattern(clone(result.judge.pattern));
         setPointsSendState("sent");
@@ -1879,18 +2004,32 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
         setPointsSendState("error");
       }
     } catch {
+      if (!isCurrentSendOperation(pointsOperationRef.current, operationToken)) return;
       setPointsSendState("error");
     } finally {
-      pointsSendingRef.current = false;
+      if (isCurrentSendOperation(pointsOperationRef.current, operationToken)) {
+        pointsSendingRef.current = false;
+        setPointsSendDelayed(false);
+        if (pointsWatchdogRef.current) clearTimeout(pointsWatchdogRef.current);
+      }
     }
   };
 
   const saveBinaryVote = async () => {
     if (!localBinaryVote || localBinarySent || binarySendingRef.current) return;
     binarySendingRef.current = true;
+    const operationToken = binaryOperationRef.current + 1;
+    binaryOperationRef.current = operationToken;
+    setBinarySendDelayed(false);
     setBinarySendState("sending");
+    binaryWatchdogRef.current = setTimeout(() => {
+      if (isCurrentSendOperation(binaryOperationRef.current, operationToken) && binarySendingRef.current) {
+        setBinarySendDelayed(true);
+      }
+    }, 8000);
     try {
       const result = await submitBinary(judgeId, meta.evaluationId, localBinaryVote);
+      if (!isCurrentSendOperation(binaryOperationRef.current, operationToken)) return;
       if (result.status === "accepted" || result.status === "already_sent") {
         setLocalBinaryVote(result.judge.pattern.binary.vote);
         setLocalBinarySent(true);
@@ -1899,9 +2038,14 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
         setBinarySendState("error");
       }
     } catch {
+      if (!isCurrentSendOperation(binaryOperationRef.current, operationToken)) return;
       setBinarySendState("error");
     } finally {
-      binarySendingRef.current = false;
+      if (isCurrentSendOperation(binaryOperationRef.current, operationToken)) {
+        binarySendingRef.current = false;
+        setBinarySendDelayed(false);
+        if (binaryWatchdogRef.current) clearTimeout(binaryWatchdogRef.current);
+      }
     }
   };
 
@@ -1970,6 +2114,7 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
             vote={localBinaryVote}
             sent={localBinarySent}
             sending={binarySendState === "sending"}
+            sendDelayed={binarySendDelayed}
             sendError={binarySendState === "error"}
             canSend={evaluationAcceptsVotes && binaryGenerationMatches}
             onSelect={setLocalBinaryVote}
@@ -1980,6 +2125,7 @@ function JudgeScreen({ meta, judges, submitPoints, submitBinary, judgeId, naviga
             judge={judgePreview}
             canSend={evaluationAcceptsVotes && pointsGenerationMatches}
             sending={pointsSendState === "sending"}
+            sendDelayed={pointsSendDelayed}
             sendError={pointsSendState === "error"}
             onSelectValue={selectPatternValue}
             onSave={savePattern}

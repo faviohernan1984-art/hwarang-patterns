@@ -2,8 +2,32 @@ export const DEFAULT_ROUND_SECONDS = 120;
 export const DEFAULT_JUDGE_COUNT = 3;
 export const DEFAULT_SCORING_MODE = "binary";
 
+export function isValidEvaluationId(value) {
+  return Number.isSafeInteger(value) && value >= 1;
+}
+
 export function normalizeEvaluationId(value) {
-  return Number.isSafeInteger(value) && value >= 1 ? value : 1;
+  return isValidEvaluationId(value) ? value : 1;
+}
+
+export function isValidMetaDocument(meta) {
+  if (!meta || typeof meta !== "object") return false;
+  const config = meta.config;
+  const result = meta.patternResult;
+  if (!isValidEvaluationId(meta.evaluationId)) return false;
+  if (!config || !Number.isSafeInteger(config.roundSeconds) || config.roundSeconds < 1) return false;
+  if (config.patternJudges !== 3 && config.patternJudges !== 5) return false;
+  if (config.scoringMode !== "points" && config.scoringMode !== "binary") return false;
+  if (!Number.isSafeInteger(meta.pausedRemaining) || meta.pausedRemaining < 0 || meta.pausedRemaining > config.roundSeconds) return false;
+  if (meta.phaseStartedAt !== null && (!Number.isSafeInteger(meta.phaseStartedAt) || meta.phaseStartedAt < 0)) return false;
+  if (meta.status !== "running" && meta.status !== "paused") return false;
+  if (meta.phase !== "fight" && meta.phase !== "finished") return false;
+  if (typeof meta.evaluationStarted !== "boolean") return false;
+  if (meta.status === "running" && (meta.phase !== "fight" || meta.evaluationStarted !== true || meta.phaseStartedAt === null)) return false;
+  if (meta.phase === "finished" && (meta.status !== "paused" || meta.pausedRemaining !== 0 || meta.phaseStartedAt !== null)) return false;
+  if (!result || typeof result.completed !== "boolean") return false;
+  if (result.completed === true && !["hong", "chong", "draw"].includes(result.winner)) return false;
+  return true;
 }
 
 export function nextEvaluationId(value) {
@@ -63,7 +87,7 @@ export function pointsTotals(pattern) {
 }
 
 export function pointsSummary(meta, judges, judgeCount) {
-  const generation = normalizeEvaluationId(meta?.evaluationId);
+  const generation = meta?.evaluationId;
   const active = judges.slice(0, judgeCount);
   let hong = 0;
   let chong = 0;
@@ -71,7 +95,7 @@ export function pointsSummary(meta, judges, judgeCount) {
 
   active.forEach((judge) => {
     if (judge?.pattern?.sent !== true) return;
-    if (normalizeEvaluationId(judge.pattern.evaluationId) !== generation) return;
+    if (!isValidEvaluationId(generation) || judge.pattern.evaluationId !== generation) return;
     const totals = pointsTotals(judge.pattern);
     if (!totals) return;
     sent += 1;

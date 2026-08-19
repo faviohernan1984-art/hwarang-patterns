@@ -10,6 +10,7 @@ import {
   isEvaluationOpen,
   isExpectedEvaluation,
   isValidPointsSubmission,
+  isValidMetaDocument,
   makeFreshJudge,
   makeNextEvaluationMeta,
   makeResetEvaluationMeta,
@@ -19,6 +20,16 @@ import {
 const side = (tech = 5, power = 3, rhythm = 3) => ({ tech, power, rhythm, zero: false });
 const zeroSide = () => ({ tech: 0, power: 0, rhythm: 0, zero: true });
 const card = (hong = side(), chong = side(4, 2, 2)) => ({ hong, chong });
+const validMeta = () => ({
+  evaluationId: 1,
+  evaluationStarted: false,
+  config: { roundSeconds: 120, patternJudges: 3, scoringMode: "binary" },
+  status: "paused",
+  phase: "fight",
+  pausedRemaining: 120,
+  phaseStartedAt: null,
+  patternResult: { completed: false, winner: "en_curso" },
+});
 
 test("POINTS rejects an empty card", () => {
   assert.equal(isValidPointsSubmission(card(side(0, 0, 0), side(0, 0, 0))), false);
@@ -85,6 +96,34 @@ test("generation checks reject missing or malformed evaluation identifiers", () 
   assert.equal(isExpectedEvaluation({ evaluationId: 1 }, "1"), false);
   assert.equal(applyFirstPointsSubmission({ ...makeFreshJudge(1, 1), pattern: { ...makeFreshJudge(1, 1).pattern, evaluationId: undefined } }, 1, card()).status, "stale_generation");
   assert.equal(applyFirstBinarySubmission(makeFreshJudge(1, 1), undefined, "hong").status, "stale_generation");
+});
+
+test("meta validation accepts a coherent prepared evaluation", () => {
+  assert.equal(isValidMetaDocument(validMeta()), true);
+});
+
+test("meta validation rejects corrupt identifiers, timing and judge configuration", () => {
+  for (const corrupt of [
+    { evaluationId: null },
+    { evaluationId: "1" },
+    { config: { ...validMeta().config, roundSeconds: 0 } },
+    { config: { ...validMeta().config, roundSeconds: "120" } },
+    { config: { ...validMeta().config, patternJudges: 4 } },
+    { pausedRemaining: -1 },
+    { pausedRemaining: Infinity },
+    { phaseStartedAt: "now" },
+    { phaseStartedAt: Number.NaN },
+  ]) {
+    assert.equal(isValidMetaDocument({ ...validMeta(), ...corrupt }), false);
+  }
+});
+
+test("meta validation rejects impossible state combinations and invalid official results", () => {
+  assert.equal(isValidMetaDocument({ ...validMeta(), status: "running", phaseStartedAt: null }), false);
+  assert.equal(isValidMetaDocument({ ...validMeta(), status: "running", evaluationStarted: true, phaseStartedAt: 1000 }), true);
+  assert.equal(isValidMetaDocument({ ...validMeta(), phase: "finished", pausedRemaining: 10 }), false);
+  assert.equal(isValidMetaDocument({ ...validMeta(), patternResult: { completed: true, winner: null } }), false);
+  assert.equal(isValidMetaDocument({ ...validMeta(), patternResult: { completed: true, winner: "invalid" } }), false);
 });
 
 for (const mode of ["POINTS", "BINARY"]) {
