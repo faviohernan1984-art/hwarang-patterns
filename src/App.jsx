@@ -13,6 +13,7 @@ import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { useWakeLock } from "./useWakeLock";
+import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import { isCurrentSendOperation, sendStatusLabel } from "./sendRecovery";
 import {
   applyFirstBinarySubmission,
@@ -37,6 +38,7 @@ import "./PublicScreen.css";
 import "./PresidentScreen.css";
 import "./JudgeBinary.css";
 import "./JudgePoints.css";
+import "./HomeScreen.css";
 
 const HONG = "Hong";
 const CHONG = "Chong";
@@ -1167,66 +1169,88 @@ function JudgePatternReadOnlyCard({ judge }) {
   );
 }
 
-function QRSection({ meta }) {
-  const judgesToShow = activeJudgeCount(meta);
-  const base = getBaseURL();
-
-  return (
-    <div style={{ ...styles.panel, marginTop: 16 }}>
-      <h2>QR Conexión</h2>
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 8 }}>Presidente</div>
-          <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-            <QRCodeCanvas value={`${base}/president`} size={150} />
-          </div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 8 }}>Pantalla pública</div>
-          <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-            <QRCodeCanvas value={`${base}/public`} size={150} />
-          </div>
-        </div>
-
-        {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
-          <div key={n} style={{ textAlign: "center" }}>
-            <div style={{ marginBottom: 8 }}>Juez {n}</div>
-            <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-              <QRCodeCanvas value={`${base}/judge/${n}`} size={150} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function Home({ navigate, meta }) {
   const judgesToShow = activeJudgeCount(meta);
+  const [copiedPath, setCopiedPath] = useState(null);
+  const base = getBaseURL();
+  const accessItems = [
+    { key: "president", label: "PRESIDENT", path: "/president", tone: "president" },
+    { key: "public", label: "PUBLIC", path: "/public", tone: "public" },
+    ...Array.from({ length: judgesToShow }, (_, index) => ({
+      key: `judge-${index + 1}`,
+      label: `JUDGE ${index + 1}`,
+      path: `/judge/${index + 1}`,
+      tone: "judge",
+    })),
+  ].map((access) => ({ ...access, accessUrl: `${base}${access.path}` }));
+
+  const copyAccessUrl = async (access) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(access.accessUrl);
+      } else {
+        const field = document.createElement("textarea");
+        field.value = access.accessUrl;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      setCopiedPath(access.path);
+      window.setTimeout(() => setCopiedPath((current) => current === access.path ? null : current), 1400);
+    } catch {
+      setCopiedPath(null);
+    }
+  };
 
   return (
-    <Frame16x9>
-      <div style={{ ...styles.page, display: "grid", gridTemplateRows: "260px auto 1fr", alignContent: "start" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <BrandHeaderLarge />
-        </div>
+    <main className="patterns-home">
+      <div className="patterns-home__grid" aria-hidden="true" />
+      <header className="patterns-home__header">
+        <HwarangAnimatedIsotype size={58} showLabel />
+        <h1>PATTERNS GUP PRO</h1>
+        <div className="patterns-home__eyebrow">MATCH ACCESS CENTER</div>
+        <span>WAITING ROOM · SCREEN ACCESS</span>
+      </header>
 
-        <div style={{ textAlign: "center", marginTop: -20 }}>
-          <h1 style={{ margin: 0, fontSize: 62 }}>Hwarang Scoring Patterns Gups</h1>
-          <p style={{ fontSize: 28, opacity: 0.9 }}>Elegí una pantalla</p>
-        </div>
+      <nav className="patterns-home__quick-access" aria-label="Acceso directo a pantallas">
+        {accessItems.map((access) => (
+          <button key={access.key} type="button" className={`patterns-home__quick-button patterns-home__quick-button--${access.tone}`} onClick={() => navigate(access.path)}>
+            {access.label}
+          </button>
+        ))}
+      </nav>
 
-        <div style={{ ...styles.panel, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", marginTop: 20 }}>
-          <div style={styles.row}>
-            <AppButton style={{ ...styles.green, boxShadow: "0 0 20px rgba(34,197,94,0.35)" }} onClick={() => navigate("/president")}>Presidente</AppButton>
-            <AppButton style={{ ...styles.blue, boxShadow: "0 0 20px rgba(59,130,246,0.35)" }} onClick={() => navigate("/public")}>Pantalla pública</AppButton>
-            {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
-              <AppButton key={n} style={{ ...styles.red, boxShadow: "0 0 20px rgba(239,68,68,0.35)" }} onClick={() => navigate(`/judge/${n}`)}>Juez {n}</AppButton>
-            ))}
-          </div>
+      <section className="patterns-home__access-section" aria-labelledby="patterns-home-access-title">
+        <div className="patterns-home__section-heading">
+          <div><span>LIVE LINKS</span><h2 id="patterns-home-access-title">ACCESS SCREENS</h2></div>
+          <small>{accessItems.length} ACTIVE ENDPOINTS</small>
         </div>
-      </div>
-    </Frame16x9>
+        <div className={`patterns-home__cards patterns-home__cards--count-${accessItems.length}`}>
+          {accessItems.map((access) => (
+            <article key={access.key} className={`patterns-home__card patterns-home__card--${access.tone}`}>
+              <div className="patterns-home__card-role"><span>{access.label}</span><i aria-hidden="true" /></div>
+              <button type="button" className="patterns-home__qr" aria-label={`Abrir ${access.label}`} onClick={() => navigate(access.path)}>
+                <QRCodeCanvas value={access.accessUrl} size={192} level="M" />
+              </button>
+              <code className="patterns-home__route">{access.path}</code>
+              <button type="button" className="patterns-home__copy" onClick={() => copyAccessUrl(access)}>
+                {copiedPath === access.path ? "COPIED" : "COPY URL"}
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <footer className="patterns-home__footer">
+        <span>PATTERNS GUP</span>
+        <strong><i aria-hidden="true" /> SYSTEM READY</strong>
+        <span>HWARANG SCORING UNIVERSE</span>
+      </footer>
+    </main>
   );
 }
 
@@ -1302,9 +1326,8 @@ function PublicScreen({ meta, judges, navigate }) {
             <div className="patterns-public__eyebrow">HWARANG SCORING UNIVERSE™</div>
             <div className="patterns-public__product-stage">
               <span className="patterns-public__title-scan" aria-hidden="true" />
-              <div className="patterns-public__product">PATTERNS</div>
+              <div className="patterns-public__product">PATTERNS GUP PRO</div>
             </div>
-            <div className="patterns-public__discipline">GUP MATCH</div>
           </div>
       </header>
 
@@ -1708,10 +1731,9 @@ function PresidentScreen({ meta, judges, writeMeta, prepareNextEvaluation, close
             </AppButton>
           </nav>
 
-          <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Match">
+          <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Pro">
             <span>HWARANG SCORING UNIVERSE™</span>
-            <strong>PATTERNS</strong>
-            <small>GUP MATCH</small>
+            <strong>PATTERNS GUP PRO</strong>
           </div>
         </header>
 
@@ -1855,19 +1877,7 @@ function PresidentScreen({ meta, judges, writeMeta, prepareNextEvaluation, close
             <AppButton style={styles.red} disabled={!!commandPending || meta.patternResult?.completed} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
             <AppButton style={styles.blue} disabled={!!commandPending || meta.patternResult?.completed} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
             <AppButton style={styles.gray} disabled={!!commandPending || meta.patternResult?.completed || scoringMode === "binary"} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
-            <details>
-              <summary>QR ACCESS</summary>
-              <div className="patterns-president__qr-overlay">
-                <button
-                  type="button"
-                  className="patterns-president__qr-back"
-                  onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
-                >
-                  <span aria-hidden="true">←</span> BACK
-                </button>
-                <QRSection meta={meta} />
-              </div>
-            </details>
+            <button type="button" className="patterns-president__qr-home" onClick={() => navigate("/")}>QR ACCESS</button>
           </div>
         </section>
 

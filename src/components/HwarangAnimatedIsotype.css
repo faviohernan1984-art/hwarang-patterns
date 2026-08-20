@@ -1,0 +1,7 @@
+.hwarang-animated-isotype { --hwarang-isotype-size:52px; display:inline-flex; align-items:center; gap:0; }
+.hwarang-animated-isotype__symbol { position:relative; width:var(--hwarang-isotype-size); height:var(--hwarang-isotype-size); flex:0 0 var(--hwarang-isotype-size); }
+.hwarang-animated-isotype__ring { position:absolute; inset:0; border-radius:50%; border:3px solid rgba(245,197,66,.22); border-top-color:#f00; box-shadow:0 0 28px rgb(255,253,253); animation:hwarang-isotype-spin 2.8s linear infinite; }
+.hwarang-animated-isotype__letter { position:absolute; width:var(--hwarang-isotype-size); height:var(--hwarang-isotype-size); display:flex; align-items:center; justify-content:center; color:#ff2222; font-size:calc(var(--hwarang-isotype-size)*.52); font-weight:900; text-shadow:0 0 8px rgba(255,40,40,.65),0 0 20px rgba(214,173,69,.45); pointer-events:none; }
+.hwarang-animated-isotype__label { color:#f8fafc; font-size:12px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
+@keyframes hwarang-isotype-spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .hwarang-animated-isotype__ring { animation:none; } }

@@ -1,0 +1,107 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function assignedTo(matchId) {
+      return signedIn()
+        && request.auth.token.matchId is string
+        && request.auth.token.matchId == matchId;
+    }
+
+    function isPresident(matchId) {
+      return assignedTo(matchId) && request.auth.token.role == "president";
+    }
+
+    function isJudge(matchId, judgeId) {
+      return assignedTo(matchId)
+        && request.auth.token.role == "judge"
+        && request.auth.token.judgeId is string
+        && request.auth.token.judgeId == judgeId;
+    }
+
+    function isPublic(matchId) {
+      return assignedTo(matchId) && request.auth.token.role == "public";
+    }
+
+    function currentEvaluationId(matchId) {
+      return get(/databases/$(database)/documents/matches/$(matchId)).data.evaluationId;
+    }
+
+    function validMetaCreate() {
+      return request.resource.data.evaluationId is int
+        && request.resource.data.evaluationId >= 1;
+    }
+
+    function validMetaUpdate() {
+      return request.resource.data.evaluationId is int
+        && request.resource.data.evaluationId >= 1
+        && (request.resource.data.evaluationId == resource.data.evaluationId
+          || request.resource.data.evaluationId == resource.data.evaluationId + 1)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "matchCredits", "matchCreditsConsumed", "creditsUsed", "creditsRemaining",
+          "billing", "creditLedger"
+        ]);
+    }
+
+    function judgeGenerationMatches(matchId) {
+      return request.resource.data.pattern.evaluationId == currentEvaluationId(matchId)
+        && request.resource.data.pattern.binary.evaluationId == currentEvaluationId(matchId);
+    }
+
+    function validFirstPointsSubmission(matchId) {
+      return judgeGenerationMatches(matchId)
+        && resource.data.pattern.sent == false
+        && request.resource.data.pattern.sent == true
+        && request.resource.data.pattern.binary == resource.data.pattern.binary
+        && request.resource.data.pattern.diff(resource.data.pattern).affectedKeys()
+          .hasOnly(["evaluationId", "hong", "chong", "sent"]);
+    }
+
+    function validFirstBinarySubmission(matchId) {
+      return judgeGenerationMatches(matchId)
+        && resource.data.pattern.binary.sent == false
+        && request.resource.data.pattern.binary.sent == true
+        && request.resource.data.pattern.binary.vote in ["hong", "chong"]
+        && request.resource.data.pattern.diff(resource.data.pattern).affectedKeys()
+          .hasOnly(["binary"]);
+    }
+
+    match /matches/{matchId} {
+      allow read: if isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
+      allow create: if isPresident(matchId) && validMetaCreate();
+      allow update: if isPresident(matchId) && validMetaUpdate();
+      allow delete: if false;
+
+      match /judges/{judgeId} {
+        allow read: if isPresident(matchId) || isJudge(matchId, judgeId);
+        allow create, delete: if isPresident(matchId);
+        allow update: if isPresident(matchId)
+          || isJudge(matchId, judgeId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["pattern"])
+            && (validFirstPointsSubmission(matchId) || validFirstBinarySubmission(matchId));
+      }
+
+      match /public/state {
+        allow read: if isPublic(matchId) || isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
+        allow write: if false;
+      }
+
+      match /clock/state {
+        allow read: if isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
+        allow write: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
