@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:lan": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
-    "test": "node --test src/binarySummary.test.js src/evaluationRules.test.js src/appStructure.test.js src/sendRecovery.test.js src/chaosStress.test.js src/domain/runtimeContext.test.js",
+    "test": "node --test src/binarySummary.test.js src/evaluationRules.test.js src/appStructure.test.js src/sendRecovery.test.js src/chaosStress.test.js src/domain/runtimeContext.test.js src/firebaseConfig.test.js",
     "test:security": "node --test test/firestore.rules.test.js",
     "test:security:emulator": "firebase emulators:exec --only firestore,auth --project demo-hwarang-scoring \"npm.cmd run test:security\"",
     "lint": "eslint .",
