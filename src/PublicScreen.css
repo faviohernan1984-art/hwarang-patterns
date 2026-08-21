@@ -137,7 +137,7 @@
 
 .patterns-public__product-stage {
   position: relative;
-  width: 33vw;
+  width: 70vw;
   margin: 0.8vh auto 0;
 }
 
@@ -145,7 +145,7 @@
   position: absolute;
   top: -1vh;
   left: 50%;
-  width: 33vw;
+  width: 70vw;
   height: 2px;
   overflow: hidden;
   border-radius: 999px;
@@ -173,6 +173,7 @@
   font-style: italic;
   line-height: 0.82;
   letter-spacing: -0.02em;
+  white-space: nowrap;
   text-transform: uppercase;
   transform: skewX(-10deg);
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.95), 0 0 12px rgba(255, 255, 255, 0.45), 0 0 26px rgba(255, 255, 255, 0.18), 0 1px 0 rgb(4, 0, 255);

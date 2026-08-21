@@ -1,5 +1,6 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   onSnapshot,
   runTransaction,
@@ -12,6 +13,8 @@ import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { useWakeLock } from "./useWakeLock";
+import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
+import "./HomeScreen.css";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
 import "./JudgeBinary.css";
@@ -292,6 +295,12 @@ function activeJudges(meta, judges) {
   return judges.slice(0, activeJudgeCount(meta));
 }
 
+function canClosePatternEvaluation(meta, time, judges) {
+  if (meta?.status === "running" || time > 0 || meta?.patternResult?.completed) return false;
+  if (getScoringMode(meta) === "binary") return binarySummary(meta, judges).allSent;
+  return activeJudges(meta, judges).every((judge) => judge.pattern?.sent === true);
+}
+
 function formatTime(totalSeconds) {
   const safe = Math.max(0, Math.floor(totalSeconds || 0));
   const mins = Math.floor(safe / 60);
@@ -564,15 +573,6 @@ function Frame16x9({ children }) {
   );
 }
 
-function BrandHeaderLarge() {
-  return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 30, marginBottom: 14 }}>
-      <img src="/logo-universe.png" alt="Hwarang Universe" style={{ height: 180, maxWidth: 360, objectFit: "contain" }} />
-      <img src="/logo-patterns.png" alt="Hwarang Patterns" style={{ height: 180, maxWidth: 360, objectFit: "contain" }} />
-    </div>
-  );
-}
-
 function BrandHeaderSmall() {
   return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 14, margin: "8px 0 12px" }}>
@@ -614,7 +614,7 @@ function AppButton({ children, style = {}, onClick, feedback = "ui", ...props })
   );
 }
 
-function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "public", onClose }) {
+function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "public", onClose, overlayBackground = "rgba(0,0,0,0.90)" }) {
   if (combatClone) {
     if (winner !== "hong" && winner !== "chong" && winner !== "draw") return null;
 
@@ -644,7 +644,7 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "rgba(0,0,0,0.90)",
+          background: overlayBackground,
         }}
       >
         <div style={{ textAlign: "center", width: "100%", transform: "translateY(-50px)" }}>
@@ -784,6 +784,74 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
 
       {mode === "president" && <AppButton style={styles.gray} onClick={onClose}>Close</AppButton>}
     </div>
+  );
+}
+
+function ViewportWinnerOverlay({ winner, mode = "public", onClose }) {
+  const stageRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const baseWidth = 1920;
+  const baseHeight = 1080;
+  const overlayBackground = "rgba(0,0,0,0.90)";
+
+  useLayoutEffect(() => {
+    const stageHost = stageRef.current;
+    if (!stageHost) return undefined;
+    const recalc = () => {
+      const nextScale = Math.min(
+        stageHost.clientWidth / baseWidth,
+        stageHost.clientHeight / baseHeight
+      );
+      setScale(Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1);
+    };
+    recalc();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(recalc) : null;
+    observer?.observe(stageHost);
+    window.addEventListener("resize", recalc);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", recalc);
+    };
+  }, []);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100000,
+        width: "100vw",
+        height: "100dvh",
+        overflow: "hidden",
+        background: overlayBackground,
+      }}
+      ref={stageRef}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          width: baseWidth,
+          height: baseHeight,
+          overflow: "hidden",
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: "center center",
+        }}
+      >
+        <WinnerFullScreen
+          winner={winner}
+          zIndex={0}
+          combatClone
+          mode={mode}
+          onClose={onClose}
+          overlayBackground="transparent"
+        />
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -940,66 +1008,81 @@ function JudgePatternReadOnlyCard({ judge }) {
   );
 }
 
-function QRSection({ meta }) {
-  const judgesToShow = activeJudgeCount(meta);
-  const base = getBaseURL();
-
-  return (
-    <div style={{ ...styles.panel, marginTop: 16 }}>
-      <h2>QR Conexión</h2>
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 8 }}>Presidente</div>
-          <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-            <QRCodeCanvas value={`${base}/president`} size={150} />
-          </div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 8 }}>Pantalla pública</div>
-          <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-            <QRCodeCanvas value={`${base}/public`} size={150} />
-          </div>
-        </div>
-
-        {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
-          <div key={n} style={{ textAlign: "center" }}>
-            <div style={{ marginBottom: 8 }}>Juez {n}</div>
-            <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
-              <QRCodeCanvas value={`${base}/judge/${n}`} size={150} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function Home({ navigate, meta }) {
   const judgesToShow = activeJudgeCount(meta);
+  const [copiedPath, setCopiedPath] = useState(null);
+  const base = getBaseURL();
+  const accessItems = [
+    { key: "president", label: "PRESIDENT", path: "/president", tone: "president" },
+    { key: "public", label: "PUBLIC", path: "/public", tone: "public" },
+    ...Array.from({ length: judgesToShow }, (_, index) => ({
+      key: `judge-${index + 1}`,
+      label: `JUDGE ${index + 1}`,
+      path: `/judge/${index + 1}`,
+      tone: "judge",
+    })),
+  ].map((access) => ({ ...access, accessUrl: `${base}${access.path}` }));
+
+  const copyAccessUrl = async (access) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(access.accessUrl);
+      } else {
+        const field = document.createElement("textarea");
+        field.value = access.accessUrl;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      setCopiedPath(access.path);
+      window.setTimeout(() => setCopiedPath((current) => current === access.path ? null : current), 1400);
+    } catch {
+      setCopiedPath(null);
+    }
+  };
 
   return (
-    <Frame16x9>
-      <div style={{ ...styles.page, display: "grid", gridTemplateRows: "260px auto 1fr", alignContent: "start" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <BrandHeaderLarge />
+    <main className="patterns-home">
+      <div className="patterns-home__grid" aria-hidden="true" />
+      <header className="patterns-home__header">
+        <HwarangAnimatedIsotype size={58} showLabel />
+        <h1>PATTERNS GUP PRO</h1>
+        <div className="patterns-home__eyebrow">MATCH ACCESS CENTER</div>
+        <span>WAITING ROOM · SCREEN ACCESS</span>
+      </header>
+      <nav className="patterns-home__quick-access" aria-label="Acceso directo a pantallas">
+        {accessItems.map((access) => (
+          <button key={access.key} type="button" className={`patterns-home__quick-button patterns-home__quick-button--${access.tone}`} onClick={() => navigate(access.path)}>{access.label}</button>
+        ))}
+      </nav>
+      <section className="patterns-home__access-section" aria-labelledby="patterns-home-access-title">
+        <div className="patterns-home__section-heading">
+          <div><span>LIVE LINKS</span><h2 id="patterns-home-access-title">ACCESS SCREENS</h2></div>
+          <small>{accessItems.length} ACTIVE ENDPOINTS</small>
         </div>
-
-        <div style={{ textAlign: "center", marginTop: -20 }}>
-          <h1 style={{ margin: 0, fontSize: 62 }}>Hwarang Scoring Patterns Gups</h1>
-          <p style={{ fontSize: 28, opacity: 0.9 }}>Elegí una pantalla</p>
+        <div className={`patterns-home__cards patterns-home__cards--count-${accessItems.length}`}>
+          {accessItems.map((access) => (
+            <article key={access.key} className={`patterns-home__card patterns-home__card--${access.tone}`}>
+              <div className="patterns-home__card-role"><span>{access.label}</span><i aria-hidden="true" /></div>
+              <button type="button" className="patterns-home__qr" aria-label={`Abrir ${access.label}`} onClick={() => navigate(access.path)}>
+                <QRCodeCanvas value={access.accessUrl} size={192} level="M" />
+              </button>
+              <code className="patterns-home__route">{access.path}</code>
+              <button type="button" className="patterns-home__copy" onClick={() => copyAccessUrl(access)}>{copiedPath === access.path ? "COPIED" : "COPY URL"}</button>
+            </article>
+          ))}
         </div>
-
-        <div style={{ ...styles.panel, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", marginTop: 20 }}>
-          <div style={styles.row}>
-            <AppButton style={{ ...styles.green, boxShadow: "0 0 20px rgba(34,197,94,0.35)" }} onClick={() => navigate("/president")}>Presidente</AppButton>
-            <AppButton style={{ ...styles.blue, boxShadow: "0 0 20px rgba(59,130,246,0.35)" }} onClick={() => navigate("/public")}>Pantalla pública</AppButton>
-            {Array.from({ length: judgesToShow }, (_, i) => i + 1).map((n) => (
-              <AppButton key={n} style={{ ...styles.red, boxShadow: "0 0 20px rgba(239,68,68,0.35)" }} onClick={() => navigate(`/judge/${n}`)}>Juez {n}</AppButton>
-            ))}
-          </div>
-        </div>
-      </div>
-    </Frame16x9>
+      </section>
+      <footer className="patterns-home__footer">
+        <span>PATTERNS GUP</span>
+        <strong><i aria-hidden="true" /> SYSTEM READY</strong>
+        <span>HWARANG SCORING UNIVERSE</span>
+      </footer>
+    </main>
   );
 }
 
@@ -1075,9 +1158,8 @@ function PublicScreen({ meta, judges, navigate }) {
             <div className="patterns-public__eyebrow">HWARANG SCORING UNIVERSE™</div>
             <div className="patterns-public__product-stage">
               <span className="patterns-public__title-scan" aria-hidden="true" />
-              <div className="patterns-public__product">PATTERNS</div>
+              <div className="patterns-public__product">PATTERNS GUP PRO</div>
             </div>
-            <div className="patterns-public__discipline">GUP MATCH</div>
           </div>
       </header>
 
@@ -1168,11 +1250,7 @@ function PublicScreen({ meta, judges, navigate }) {
       </main>
 
       {!!meta.patternResult?.completed && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
-          <Frame16x9>
-            <WinnerFullScreen winner={meta.patternResult?.winner} zIndex={100} combatClone />
-          </Frame16x9>
-        </div>
+        <ViewportWinnerOverlay winner={meta.patternResult?.winner} />
       )}
     </>
   );
@@ -1208,8 +1286,19 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     return binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong");
   });
   const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
+  const [forcedWinnerIntent, setForcedWinnerIntent] = useState(null);
+  const [settledForceToken, setSettledForceToken] = useState(null);
+  const [localConfigurationLock, setLocalConfigurationLock] = useState(false);
+  const forceWriteQueueRef = useRef(Promise.resolve());
+  const latestForceRef = useRef(null);
+  const forceSequenceRef = useRef(0);
   const editorSaveTimeoutRef = useRef(null);
   const { left, right } = getDisplaySides(meta, "president");
+  const persistedConfigurationLock = meta.status === "running"
+    || meta.phase === "finished"
+    || !!meta.patternResult?.completed
+    || Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
+  const configurationLocked = localConfigurationLock || persistedConfigurationLock;
 
   useEffect(() => {
     const next = {
@@ -1293,6 +1382,14 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   }, [meta.patternResult?.completed, meta.patternResult?.winner]);
 
   useEffect(() => {
+    if (!forcedWinnerIntent || !settledForceToken) return;
+    if (meta.patternResult?.forcedDecisionToken !== settledForceToken) return;
+    setForcedWinnerIntent(null);
+    setSettledForceToken(null);
+    latestForceRef.current = null;
+  }, [forcedWinnerIntent, settledForceToken, meta.patternResult?.forcedDecisionToken]);
+
+  useEffect(() => {
     if (meta.status !== "running") return;
     if (meta.phase === "finished") return;
     if (time > 0) return;
@@ -1315,7 +1412,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     setSecondsInput(String(meta.config.roundSeconds || 120));
   }, [meta.config.roundSeconds]);
 
-  const saveConfig = async ({ preserveRemaining = false } = {}) => {
+  const saveConfig = async ({ preserveRemaining = false, allowDuringStart = false } = {}) => {
+    if (configurationLocked && !allowDuringStart) return;
     const roundSeconds = Math.max(1, parseInt(secondsInput, 10) || 120);
 
     await writeMeta((current) => ({
@@ -1331,6 +1429,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const setPatternJudgeCount = async (count) => {
+    if (configurationLocked) return;
     await writeMeta((current) => ({
       ...current,
       config: {
@@ -1356,8 +1455,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     const isResume = meta.status === "paused"
       && meta.phase === "fight"
       && Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
+    setLocalConfigurationLock(true);
     await commitEditor(editorDraftRef.current);
-    await saveConfig({ preserveRemaining: isResume });
+    await saveConfig({ preserveRemaining: isResume, allowDuringStart: true });
 
     await writeMeta((current) => {
       if (current.status === "running") return current;
@@ -1382,6 +1482,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const closePatternEvaluation = async () => {
+    if (!canClosePatternEvaluation(meta, time, judges)) return;
+
     if (getScoringMode(meta) === "binary") {
       const metaSnapshot = await getDoc(matchMetaRef);
       const persistedMeta = ensureMetaShape(metaSnapshot.exists() ? metaSnapshot.data() : meta);
@@ -1394,12 +1496,14 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
         }
       });
       const live = binarySummary(persistedMeta, persistedJudges);
-      if (getScoringMode(persistedMeta) !== "binary" || !live.allSent || (live.winner !== "hong" && live.winner !== "chong")) {
+      const persistedTime = getDerivedTime(persistedMeta, Date.now());
+      if (!canClosePatternEvaluation(persistedMeta, persistedTime, persistedJudges) || (live.winner !== "hong" && live.winner !== "chong")) {
         console.error("Cannot close Binary evaluation: incomplete or inconsistent votes.", live);
         return;
       }
 
       await writeMeta((current) => {
+        if (getScoringMode(current) !== "binary" || current.status === "running" || getDerivedTime(current, Date.now()) > 0 || current.patternResult?.completed) return current;
         current.patternResult = {
           ...(current.patternResult || makeEmptyPatternResult()),
           scoringMode: "binary",
@@ -1424,6 +1528,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     const live = patternSummary(meta, judges);
 
     await writeMeta((current) => {
+      if (getScoringMode(current) !== "points" || current.status === "running" || getDerivedTime(current, Date.now()) > 0 || current.patternResult?.completed) return current;
+      if (live.sent !== activeJudgeCount(current)) return current;
       current.patternResult = {
         hong: live.hong,
         chong: live.chong,
@@ -1441,6 +1547,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   };
 
   const prepareNextMatch = async () => {
+    setLocalConfigurationLock(false);
     for (let i = 1; i <= MAX_JUDGES; i += 1) {
       await writeJudge(i, () => makeJudge(i));
     }
@@ -1458,21 +1565,50 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     });
   };
 
-  const applyPatternForcedWinner = async (winner) => {
-    if (getScoringMode(meta) === "binary" && winner === "draw") return;
-    await writeMeta((current) => {
-      current.patternResult = {
-        ...current.patternResult,
-        ...(getScoringMode(current) === "binary" ? { scoringMode: "binary" } : {}),
-        completed: true,
-        winner,
-      };
-      current.phase = "finished";
-      current.status = "paused";
-      current.pausedRemaining = 0;
-      current.phaseStartedAt = null;
-      return current;
-    });
+  const applyPatternForcedWinner = (winner) => {
+    if (!["hong", "chong", "draw"].includes(winner)) return;
+    if (latestForceRef.current?.winner === winner) return;
+
+    const sequence = forceSequenceRef.current + 1;
+    forceSequenceRef.current = sequence;
+    const token = `${Date.now()}-${sequence}`;
+    latestForceRef.current = { winner, token };
+    setLocalConfigurationLock(true);
+    setForcedWinnerIntent(winner);
+    setSettledForceToken(null);
+    setHidePresidentWinner(false);
+
+    forceWriteQueueRef.current = forceWriteQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await writeMeta((current) => {
+          current.patternResult = {
+            ...current.patternResult,
+            scoringMode: getScoringMode(current),
+            completed: true,
+            winner,
+            forcedDecisionToken: token,
+          };
+          current.phase = "finished";
+          current.status = "paused";
+          current.pausedRemaining = 0;
+          current.phaseStartedAt = null;
+          return current;
+        });
+        if (latestForceRef.current?.token === token) setSettledForceToken(token);
+      })
+      .catch((error) => {
+        console.error("Unable to apply forced decision.", error);
+        if (latestForceRef.current?.token !== token) return;
+        latestForceRef.current = null;
+        setForcedWinnerIntent(null);
+        setSettledForceToken(null);
+      });
+  };
+
+  const resetEvaluation = async () => {
+    setLocalConfigurationLock(false);
+    await resetAll();
   };
 
   const updateCompetitor = async (side, field, value) => {
@@ -1483,7 +1619,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     });
   };
 
-  const showPresidentWinner = !!meta.patternResult?.completed;
+  const showPresidentWinner = !!forcedWinnerIntent || !!meta.patternResult?.completed;
+  const presidentWinner = forcedWinnerIntent || meta.patternResult?.winner;
+  const canCloseEvaluation = canClosePatternEvaluation(meta, time, judges);
   const presidentStatus = meta.patternResult?.completed || meta.phase === "finished"
     ? "FINISHED"
     : meta.status === "running"
@@ -1501,7 +1639,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
           <nav className="patterns-president__actions" aria-label="President controls">
             <AppButton className="patterns-president__action patterns-president__action--home" style={styles.gray} onClick={() => navigate("/")}><span aria-hidden="true">⌂</span> HOME</AppButton>
             <AppButton className="patterns-president__action patterns-president__action--next" style={styles.green} onClick={prepareNextMatch}><span aria-hidden="true">→</span> NEXT</AppButton>
-            <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} onClick={resetAll}><span aria-hidden="true">↻</span> RESET</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} onClick={resetEvaluation}><span aria-hidden="true">↻</span> RESET</AppButton>
             <AppButton
               className={`patterns-president__action patterns-president__action--swap${meta.publicSwapSides ? " patterns-president__action--active" : ""}`}
               style={styles.purple}
@@ -1518,10 +1656,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             </AppButton>
           </nav>
 
-          <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Match">
+          <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Pro">
             <span>HWARANG SCORING UNIVERSE™</span>
-            <strong>PATTERNS</strong>
-            <small>GUP MATCH</small>
+            <strong>PATTERNS GUP PRO</strong>
           </div>
         </header>
 
@@ -1573,13 +1710,14 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
           <div className="patterns-president__panel patterns-president__settings">
             <h2>EVALUATION SETTINGS</h2>
             <div className="patterns-president__settings-main">
-              <input type="number" min="1" value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} aria-label="Evaluation time in seconds" />
+              <input type="number" min="1" disabled={configurationLocked} value={secondsInput} onChange={(e) => setSecondsInput(e.target.value)} aria-label="Evaluation time in seconds" />
               <div className="patterns-president__presets">
                 {[60, 90, 120, 180, 300].map((seconds) => (
                   <AppButton
                     key={seconds}
                     className={`patterns-president__preset${String(secondsInput) === String(seconds) ? " is-active" : ""}`}
                     style={styles.gray}
+                    disabled={configurationLocked}
                     onClick={() => setSecondsInput(String(seconds))}
                   >
                     {seconds}
@@ -1588,9 +1726,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
               </div>
             </div>
             <div className="patterns-president__settings-actions">
-              <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
-              <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
-              <AppButton style={styles.blue} onClick={saveConfig}>SAVE CONFIG</AppButton>
+              <AppButton style={meta.config.patternJudges === 3 ? styles.green : styles.gray} disabled={configurationLocked} onClick={() => setPatternJudgeCount(3)}>3 JUDGES</AppButton>
+              <AppButton style={meta.config.patternJudges === 5 ? styles.green : styles.gray} disabled={configurationLocked} onClick={() => setPatternJudgeCount(5)}>5 JUDGES</AppButton>
+              <AppButton style={styles.blue} disabled={configurationLocked} onClick={saveConfig}>SAVE CONFIG</AppButton>
               <div className="patterns-president__scoring-mode">
                 <span>SCORING MODE</span>
                 <AppButton className={`patterns-president__scoring-option patterns-president__scoring-option--points${scoringMode === "points" ? " is-active" : ""}`} disabled={scoringModeLocked} onClick={() => setScoringMode("points")}>POINTS</AppButton>
@@ -1604,7 +1742,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             <div>
               <AppButton style={styles.green} onClick={startTimer}><span aria-hidden="true">▶</span> START</AppButton>
               <AppButton style={styles.amber} onClick={pauseTimer}><span aria-hidden="true">Ⅱ</span> PAUSE</AppButton>
-              <AppButton style={styles.blue} disabled={scoringMode === "binary" ? !binary.allSent : p.sent !== activeJudgeCount(meta)} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
+              <AppButton style={styles.blue} disabled={!canCloseEvaluation} onClick={closePatternEvaluation}><span aria-hidden="true">⚑</span> CLOSE EVALUATION</AppButton>
             </div>
           </div>
         </section>
@@ -1663,28 +1801,14 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             <span>FORCED DECISION</span>
             <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
             <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
-            <AppButton style={styles.gray} disabled={scoringMode === "binary"} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
-            <details>
-              <summary>QR ACCESS</summary>
-              <div className="patterns-president__qr-overlay">
-                <button
-                  type="button"
-                  className="patterns-president__qr-back"
-                  onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
-                >
-                  <span aria-hidden="true">←</span> BACK
-                </button>
-                <QRSection meta={meta} />
-              </div>
-            </details>
+            <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
+            <button type="button" className="patterns-president__qr-home" onClick={() => navigate("/")}>QR ACCESS</button>
           </div>
         </section>
 
         {showPresidentWinner && !hidePresidentWinner && (
-          <WinnerFullScreen
-            winner={meta.patternResult.winner}
-            zIndex={100}
-            combatClone
+          <ViewportWinnerOverlay
+            winner={presidentWinner}
             mode="president"
             onClose={() => setHidePresidentWinner(true)}
           />
