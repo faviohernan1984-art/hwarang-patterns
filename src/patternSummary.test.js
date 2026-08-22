@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { patternSummary } from "./patternSummary.js";
 
-const meta = (evaluationId) => ({ evaluationId, config: { patternJudges: 3 }, patternResult: { completed: false } });
+const meta = (evaluationId, patternJudges = 3) => ({ evaluationId, config: { patternJudges }, patternResult: { completed: false } });
 const submission = (evaluationId, hong, chong) => ({
   pattern: {
     evaluationId,
@@ -25,4 +25,12 @@ test("Points ignores a submission from an old evaluation", () => {
 test("a SEND captured before NEXT does not count after evaluationId advances", () => {
   const judges = [submission(7, 10, 0), submission(8, 2, 3), submission(8, 4, 1)];
   assert.equal(patternSummary(meta(8), judges).sent, 2);
+});
+
+test("Points keeps five-Judge aggregation generational", () => {
+  const judges = [
+    submission(4, 5, 1), submission(4, 4, 2), submission(4, 3, 2),
+    submission(4, 2, 3), submission(3, 100, 0),
+  ];
+  assert.deepEqual(patternSummary(meta(4, 5), judges), { hong: 14, chong: 8, sent: 4, winner: "en_curso" });
 });

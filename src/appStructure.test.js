@@ -90,7 +90,7 @@ test("Firestore snapshot failures are reported without bypassing the loading gat
   assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
 });
 
-test("NEXT and RESET advance evaluationId while preserving Judge cleanup", () => {
+test("NEXT and RESET advance evaluationId without physically resetting Judges", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const nextStart = source.indexOf("const prepareNextMatch = async");
   const nextEnd = source.indexOf("const applyPatternForcedWinner", nextStart);
@@ -100,9 +100,9 @@ test("NEXT and RESET advance evaluationId while preserving Judge cleanup", () =>
   const resetSource = source.slice(resetStart, resetEnd);
 
   assert.match(nextSource, /current\.evaluationId \+= 1/);
-  assert.match(nextSource, /for \(let i = 1; i <= MAX_JUDGES; i \+= 1\)/);
+  assert.doesNotMatch(nextSource, /writeJudge|roomJudgeRef|makeJudge/);
   assert.match(resetSource, /const evaluationId = current\.evaluationId \+ 1/);
-  assert.match(resetSource, /makeJudge\(i, evaluationId\)/);
+  assert.doesNotMatch(resetSource, /roomJudgeRef|makeJudge\(i|for \(let i/);
 });
 
 test("SEND captures the active evaluationId for Points and Binary", () => {
@@ -111,4 +111,26 @@ test("SEND captures the active evaluationId for Points and Binary", () => {
   assert.match(judgeSource, /const savePattern = async \(\) => \{\s*const evaluationId = meta\.evaluationId/);
   assert.match(judgeSource, /const saveBinaryVote = async \(\) => \{[\s\S]*?const evaluationId = meta\.evaluationId/);
   assert.match(judgeSource, /binary: \{\s*evaluationId,\s*vote: localBinaryVote/);
+});
+
+test("Judge resets Points and Binary locally when evaluationId changes", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
+  assert.match(judgeSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId[\s\S]*?makeJudge\(judgeId, meta\.evaluationId\)\.pattern/);
+  assert.match(judgeSource, /const isCurrent = binary\.evaluationId === meta\.evaluationId/);
+  assert.match(judgeSource, /setLocalBinaryVote\(isCurrent \? binary\.vote : null\)/);
+  assert.match(judgeSource, /setLocalBinarySent\(isCurrent && !!binary\.sent\)/);
+  assert.match(judgeSource, /j\.pattern\.binary\.evaluationId === evaluationId/);
+});
+
+test("President and Public indicators reject submissions from old evaluations", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const publicSource = source.slice(source.indexOf("function PublicScreen"), source.indexOf("function PresidentScreen"));
+  const presidentSource = source.slice(source.indexOf("function PresidentScreen"), source.indexOf("function JudgeScreen"));
+  assert.match(publicSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId/);
+  assert.match(publicSource, /binary\.evaluationId === meta\.evaluationId/);
+  assert.match(presidentSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId/);
+  assert.match(presidentSource, /binaryVote\.evaluationId === meta\.evaluationId/);
+  assert.match(presidentSource, /patternSummary\(meta, judges\)/);
+  assert.match(presidentSource, /binarySummary\(meta, judges\)/);
 });

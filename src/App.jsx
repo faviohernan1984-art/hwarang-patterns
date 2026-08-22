@@ -441,9 +441,6 @@ function useFightData(roomId) {
     const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
     const evaluationId = current.evaluationId + 1;
     await setDoc(matchMetaRef, { ...makeInitialMeta(), evaluationId });
-    for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await setDoc(roomJudgeRef(roomId, i), makeJudge(i, evaluationId));
-    }
   };
 
   return {
@@ -1252,7 +1249,7 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, navigate, roomId }) {
+function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1546,11 +1543,6 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
   const prepareNextMatch = async () => {
     setLocalConfigurationLock(false);
-    const evaluationId = meta.evaluationId + 1;
-    for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await writeJudge(i, () => makeJudge(i, evaluationId));
-    }
-
     await writeMeta((current) => {
       const roundSeconds = current.config.roundSeconds || 120;
       current.mode = "pattern";
@@ -2027,7 +2019,6 @@ export default function App() {
         meta={meta}
         judges={judges}
         writeMeta={writeMeta}
-        writeJudge={writeJudge}
         resetAll={resetAll}
         navigate={navigate}
         roomId={roomId}
