@@ -8,7 +8,7 @@ import {
   getDoc,
   getDocs,
 } from "firebase/firestore";
-import { roomMetaRef, roomJudgesQuery, roomJudgeRef } from "./firebase";
+import { roomMetaRef, roomControlRef, roomJudgesQuery, roomJudgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { patternSummary, patternTotalsForJudge } from "./patternSummary";
@@ -354,12 +354,14 @@ function getDisplaySides(meta, context = "public") {
 
 async function ensureInitialDocs(roomId) {
   const matchMetaRef = roomMetaRef(roomId);
+  const controlRef = roomControlRef(roomId);
   const judgesQuery = roomJudgesQuery(roomId);
-  const metaSnap = await getDoc(matchMetaRef);
-
-  if (!metaSnap.exists()) {
-    await setDoc(matchMetaRef, makeInitialMeta());
-  }
+  const [metaSnap, controlSnap] = await Promise.all([getDoc(matchMetaRef), getDoc(controlRef)]);
+  const migrationSource = metaSnap.exists() ? ensureMetaShape(metaSnap.data()) : makeInitialMeta();
+  const initialWrites = [];
+  if (!controlSnap.exists()) initialWrites.push(setDoc(controlRef, controlFromMeta(migrationSource)));
+  if (!metaSnap.exists()) initialWrites.push(setDoc(matchMetaRef, legacyMetaFromMeta(migrationSource)));
+  await Promise.all(initialWrites);
 
   const existing = await getDocs(judgesQuery);
   const ids = new Set(existing.docs.map((d) => d.id));
@@ -372,14 +374,17 @@ async function ensureInitialDocs(roomId) {
 }
 
 function useFightData(roomId) {
-  const [meta, setMeta] = useState(null);
+  const [control, setControl] = useState(null);
+  const [legacyMeta, setLegacyMeta] = useState(null);
   const [judges, setJudges] = useState(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
+  const [loadedControlRoomId, setLoadedControlRoomId] = useState(null);
   const [loadedMetaRoomId, setLoadedMetaRoomId] = useState(null);
   const [loadedJudgesRoomId, setLoadedJudgesRoomId] = useState(null);
   const [loadFailure, setLoadFailure] = useState(null);
 
   useEffect(() => {
     const matchMetaRef = roomMetaRef(roomId);
+    const controlRef = roomControlRef(roomId);
     const judgesQuery = roomJudgesQuery(roomId);
     const reportLoadFailure = (source, error) => {
       console.error(`[Firestore] Unable to load ${source} for room "${roomId}".`, error);
@@ -390,9 +395,17 @@ function useFightData(roomId) {
     };
     ensureInitialDocs(roomId).catch((error) => reportLoadFailure("initial documents", error));
 
+    const unsubControl = onSnapshot(controlRef, (snap) => {
+      markRoomConnection();
+      if (!snap.exists()) return;
+      setControl(controlFromMeta(snap.data()));
+      setLoadedControlRoomId(roomId);
+    }, (error) => reportLoadFailure("control snapshot", error));
+
     const unsubMeta = onSnapshot(matchMetaRef, (snap) => {
       markRoomConnection();
-      if (snap.exists()) setMeta(ensureMetaShape(snap.data())); else setMeta(makeInitialMeta());
+      if (!snap.exists()) return;
+      setLegacyMeta(legacyMetaFromMeta(snap.data()));
       setLoadedMetaRoomId(roomId);
     }, (error) => reportLoadFailure("meta snapshot", error));
 
@@ -408,6 +421,7 @@ function useFightData(roomId) {
     }, (error) => reportLoadFailure("judges snapshot", error));
 
     return () => {
+      unsubControl();
       unsubMeta();
       unsubJudges();
     };
@@ -415,13 +429,23 @@ function useFightData(roomId) {
 
   const writeMeta = async (mutator) => {
     const matchMetaRef = roomMetaRef(roomId);
-    const snap = await getDoc(matchMetaRef);
-    const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
+    const controlRef = roomControlRef(roomId);
+    const [controlSnap, metaSnap] = await Promise.all([getDoc(controlRef), getDoc(matchMetaRef)]);
+    const current = mergeRoomState(
+      controlSnap.exists() ? controlSnap.data() : makeInitialMeta(),
+      metaSnap.exists() ? metaSnap.data() : legacyMetaFromMeta(makeInitialMeta())
+    );
     const draft = clone(current);
     const result = typeof mutator === "function" ? mutator(draft) : mutator;
     const next = ensureMetaShape(result ?? draft);
-    next.updatedAt = Date.now();
-    await setDoc(matchMetaRef, next);
+    const currentControl = controlFromMeta(current);
+    const nextControl = controlFromMeta(next);
+    const currentLegacyMeta = legacyMetaFromMeta(current);
+    const nextLegacyMeta = legacyMetaFromMeta(next);
+    const writes = [];
+    if (JSON.stringify(nextControl) !== JSON.stringify(currentControl)) writes.push(setDoc(controlRef, nextControl));
+    if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) writes.push(setDoc(matchMetaRef, nextLegacyMeta));
+    await Promise.all(writes);
   };
 
   const writeJudge = async (id, mutator) => {
@@ -437,20 +461,61 @@ function useFightData(roomId) {
 
   const resetAll = async () => {
     const matchMetaRef = roomMetaRef(roomId);
-    const metaSnap = await getDoc(matchMetaRef);
-    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const controlRef = roomControlRef(roomId);
+    const controlSnap = await getDoc(controlRef);
+    const current = ensureMetaShape(controlSnap.exists() ? controlSnap.data() : makeInitialMeta());
     const evaluationId = current.evaluationId + 1;
-    await setDoc(matchMetaRef, { ...makeInitialMeta(), evaluationId });
+    const resetState = { ...makeInitialMeta(), evaluationId };
+    await Promise.all([
+      setDoc(controlRef, controlFromMeta(resetState)),
+      setDoc(matchMetaRef, legacyMetaFromMeta(resetState)),
+    ]);
   };
 
   return {
-    meta: loadedMetaRoomId === roomId && loadedJudgesRoomId === roomId ? meta : null,
+    meta: loadedControlRoomId === roomId && loadedMetaRoomId === roomId && loadedJudgesRoomId === roomId
+      ? mergeRoomState(control, legacyMeta)
+      : null,
     judges,
     writeMeta,
     writeJudge,
     resetAll,
     loadFailure: loadFailure?.roomId === roomId ? loadFailure : null,
   };
+}
+
+function controlFromMeta(meta) {
+  const current = ensureMetaShape(meta);
+  return {
+    evaluationId: current.evaluationId,
+    status: current.status,
+    phase: current.phase,
+    phaseStartedAt: current.phaseStartedAt,
+    pausedRemaining: current.pausedRemaining,
+    config: {
+      roundSeconds: current.config.roundSeconds,
+      patternJudges: current.config.patternJudges,
+      scoringMode: current.config.scoringMode,
+    },
+    hong: { ...current.hong },
+    chong: { ...current.chong },
+    publicSwapSides: !!current.publicSwapSides,
+  };
+}
+
+function legacyMetaFromMeta(meta) {
+  const current = ensureMetaShape(meta);
+  return {
+    presidentSwapSides: !!current.presidentSwapSides,
+    patternResult: { ...current.patternResult },
+  };
+}
+
+function mergeRoomState(control, legacyMeta) {
+  return ensureMetaShape({
+    ...(control || {}),
+    ...legacyMetaFromMeta(legacyMeta || makeInitialMeta()),
+  });
 }
 
 function useRoute() {
@@ -1479,9 +1544,13 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
 
     if (getScoringMode(meta) === "binary") {
       const matchMetaRef = roomMetaRef(roomId);
+      const controlRef = roomControlRef(roomId);
       const judgesQuery = roomJudgesQuery(roomId);
-      const metaSnapshot = await getDoc(matchMetaRef);
-      const persistedMeta = ensureMetaShape(metaSnapshot.exists() ? metaSnapshot.data() : meta);
+      const [controlSnapshot, metaSnapshot] = await Promise.all([getDoc(controlRef), getDoc(matchMetaRef)]);
+      const persistedMeta = mergeRoomState(
+        controlSnapshot.exists() ? controlSnapshot.data() : meta,
+        metaSnapshot.exists() ? metaSnapshot.data() : legacyMetaFromMeta(meta)
+      );
       const persistedJudges = Array.from({ length: MAX_JUDGES }, (_, index) => makeJudge(index + 1));
       const judgesSnapshot = await getDocs(judgesQuery);
       judgesSnapshot.forEach((judgeDocument) => {

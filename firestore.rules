@@ -105,6 +105,11 @@ service cloud.firestore {
     }
 
     match /rooms/{roomId} {
+      match /control/current {
+        allow read, create, update: if validPatternsRoomId(roomId);
+        allow delete: if false;
+      }
+
       match /meta/current {
         allow read, create, update: if validPatternsRoomId(roomId);
         allow delete: if false;

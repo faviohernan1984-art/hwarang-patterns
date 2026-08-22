@@ -16,6 +16,8 @@ export const db = getFirestore(app);
 
 export const roomMetaRef = (roomId) =>
   doc(db, "rooms", roomId, "meta", "current");
+export const roomControlRef = (roomId) =>
+  doc(db, "rooms", roomId, "control", "current");
 export const roomJudgesColRef = (roomId) =>
   collection(db, "rooms", roomId, "judges");
 export const roomJudgesQuery = (roomId) =>

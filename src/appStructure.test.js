@@ -83,11 +83,50 @@ test("match configuration is locked in the UI and guarded in handlers", () => {
 
 test("Firestore snapshot failures are reported without bypassing the loading gate", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  assert.match(source, /reportLoadFailure\("control snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("meta snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("judges snapshot", error\)/);
   assert.match(source, /Unable to load \$\{source\} for room/);
   assert.match(source, /if \(loadFailure\)[\s\S]*?No se pudo cargar Room/);
   assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
+});
+
+test("CONTROL is the official source for shared room coordination", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const controlStart = source.indexOf("function controlFromMeta");
+  const legacyStart = source.indexOf("function legacyMetaFromMeta", controlStart);
+  const mergeStart = source.indexOf("function mergeRoomState", legacyStart);
+  const controlSource = source.slice(controlStart, legacyStart);
+  const legacySource = source.slice(legacyStart, mergeStart);
+
+  [
+    "evaluationId", "status", "phase", "phaseStartedAt", "pausedRemaining",
+    "config", "hong", "chong", "publicSwapSides",
+  ].forEach((field) => assert.match(controlSource, new RegExp(field)));
+  assert.doesNotMatch(controlSource, /patternResult|presidentSwapSides/);
+  assert.match(legacySource, /patternResult/);
+  assert.match(legacySource, /presidentSwapSides/);
+  assert.match(source, /onSnapshot\(controlRef/);
+  assert.match(source, /setDoc\(controlRef, nextControl\)/);
+});
+
+test("START PAUSE NEXT RESET FORCE and CLOSE keep active state through CONTROL", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const presidentSource = source.slice(source.indexOf("function PresidentScreen"), source.indexOf("function JudgeScreen"));
+  assert.match(presidentSource, /const startTimer[\s\S]*?status: "running"[\s\S]*?phaseStartedAt: Date\.now\(\)/);
+  assert.match(presidentSource, /const pauseTimer[\s\S]*?current\.status = "paused"[\s\S]*?current\.phaseStartedAt = null/);
+  assert.match(presidentSource, /const prepareNextMatch[\s\S]*?current\.evaluationId \+= 1/);
+  assert.match(presidentSource, /const closePatternEvaluation[\s\S]*?current\.patternResult =/);
+  assert.match(presidentSource, /const applyPatternForcedWinner[\s\S]*?current\.patternResult =/);
+  assert.match(source, /const resetAll[\s\S]*?setDoc\(controlRef, controlFromMeta\(resetState\)\)/);
+});
+
+test("timer derivation and 3/5 scoring configuration remain local and shared", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  assert.match(source, /function getDerivedTime[\s\S]*?now - meta\.phaseStartedAt/);
+  assert.match(source, /setInterval\(\(\) => setNow\(Date\.now\(\)\), 300\)/);
+  assert.match(source, /meta\?\.config\?\.patternJudges === 5 \? 5 : 3/);
+  assert.match(source, /meta\?\.config\?\.scoringMode === "points" \? "points" : "binary"/);
 });
 
 test("NEXT and RESET advance evaluationId without physically resetting Judges", () => {

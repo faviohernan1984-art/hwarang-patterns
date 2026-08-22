@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectFirestoreEmulator, getDocs, setDoc, terminate } from "firebase/firestore";
-import { db, roomJudgeRef, roomJudgesQuery, roomMetaRef } from "./firebase.js";
+import { connectFirestoreEmulator, getDoc, getDocs, setDoc, terminate } from "firebase/firestore";
+import { db, roomControlRef, roomJudgeRef, roomJudgesQuery, roomMetaRef } from "./firebase.js";
 
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 
@@ -11,6 +11,10 @@ test("Rooms rules allow the baseline paths and reject Judge 6", { skip: !emulato
 
   try {
     await setDoc(roomMetaRef("A"), { status: "paused" });
+    await setDoc(roomControlRef("A"), { evaluationId: 1, status: "paused" });
+    await setDoc(roomControlRef("B"), { evaluationId: 7, status: "running" });
+    assert.deepEqual((await getDoc(roomControlRef("A"))).data(), { evaluationId: 1, status: "paused" });
+    assert.deepEqual((await getDoc(roomControlRef("B"))).data(), { evaluationId: 7, status: "running" });
     await setDoc(roomJudgeRef("A", 1), { id: 1 });
 
     const judges = await getDocs(roomJudgesQuery("A"));
