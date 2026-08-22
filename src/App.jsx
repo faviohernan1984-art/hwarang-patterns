@@ -7,11 +7,11 @@ import {
   setDoc,
   getDoc,
   getDocs,
-  query,
 } from "firebase/firestore";
-import { db, matchMetaRef, judgesColRef, judgeRef } from "./firebase";
+import { roomMetaRef, roomJudgesQuery, roomJudgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
+import { parseAppRoute, roomBasePath } from "./roomRoutes";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import "./HomeScreen.css";
@@ -387,50 +387,69 @@ function getDisplaySides(meta, context = "public") {
   return swap ? { left: hong, right: chong } : { left: chong, right: hong };
 }
 
-async function ensureInitialDocs() {
+async function ensureInitialDocs(roomId) {
+  const matchMetaRef = roomMetaRef(roomId);
+  const judgesQuery = roomJudgesQuery(roomId);
   const metaSnap = await getDoc(matchMetaRef);
 
   if (!metaSnap.exists()) {
     await setDoc(matchMetaRef, makeInitialMeta());
   }
 
-  const existing = await getDocs(query(judgesColRef));
+  const existing = await getDocs(judgesQuery);
   const ids = new Set(existing.docs.map((d) => d.id));
 
   for (let i = 1; i <= MAX_JUDGES; i += 1) {
     if (!ids.has(String(i))) {
-      await setDoc(judgeRef(i), makeJudge(i));
+      await setDoc(roomJudgeRef(roomId, i), makeJudge(i));
     }
   }
 }
 
-function useFightData() {
+function useFightData(roomId) {
   const [meta, setMeta] = useState(null);
   const [judges, setJudges] = useState(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
+  const [loadedMetaRoomId, setLoadedMetaRoomId] = useState(null);
+  const [loadedJudgesRoomId, setLoadedJudgesRoomId] = useState(null);
+  const [loadFailure, setLoadFailure] = useState(null);
 
   useEffect(() => {
-    ensureInitialDocs();
+    const matchMetaRef = roomMetaRef(roomId);
+    const judgesQuery = roomJudgesQuery(roomId);
+    const reportLoadFailure = (source, error) => {
+      console.error(`[Firestore] Unable to load ${source} for room "${roomId}".`, error);
+      setLoadFailure({ roomId, source, message: error?.message || String(error) });
+    };
+    const markRoomConnection = () => {
+      setLoadFailure((current) => current?.roomId === roomId ? null : current);
+    };
+    ensureInitialDocs(roomId).catch((error) => reportLoadFailure("initial documents", error));
 
     const unsubMeta = onSnapshot(matchMetaRef, (snap) => {
+      markRoomConnection();
       if (snap.exists()) setMeta(ensureMetaShape(snap.data())); else setMeta(makeInitialMeta());
-    });
+      setLoadedMetaRoomId(roomId);
+    }, (error) => reportLoadFailure("meta snapshot", error));
 
-    const unsubJudges = onSnapshot(judgesColRef, (snap) => {
+    const unsubJudges = onSnapshot(judgesQuery, (snap) => {
+      markRoomConnection();
       const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
       snap.docs.forEach((doc) => {
         const idx = Number(doc.id) - 1;
         if (idx >= 0 && idx < MAX_JUDGES) next[idx] = normalizeJudge(doc.data(), idx + 1);
       });
       setJudges(next);
-    });
+      setLoadedJudgesRoomId(roomId);
+    }, (error) => reportLoadFailure("judges snapshot", error));
 
     return () => {
       unsubMeta();
       unsubJudges();
     };
-  }, []);
+  }, [roomId]);
 
   const writeMeta = async (mutator) => {
+    const matchMetaRef = roomMetaRef(roomId);
     const snap = await getDoc(matchMetaRef);
     const current = ensureMetaShape(snap.exists() ? snap.data() : makeInitialMeta());
     const draft = clone(current);
@@ -441,7 +460,7 @@ function useFightData() {
   };
 
   const writeJudge = async (id, mutator) => {
-    const ref = judgeRef(id);
+    const ref = roomJudgeRef(roomId, id);
     const snap = await getDoc(ref);
     const current = snap.exists() ? normalizeJudge(snap.data(), id) : makeJudge(id);
     const draft = clone(current);
@@ -452,13 +471,21 @@ function useFightData() {
   };
 
   const resetAll = async () => {
+    const matchMetaRef = roomMetaRef(roomId);
     await setDoc(matchMetaRef, makeInitialMeta());
     for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await setDoc(judgeRef(i), makeJudge(i));
+      await setDoc(roomJudgeRef(roomId, i), makeJudge(i));
     }
   };
 
-  return { meta, judges, writeMeta, writeJudge, resetAll };
+  return {
+    meta: loadedMetaRoomId === roomId && loadedJudgesRoomId === roomId ? meta : null,
+    judges,
+    writeMeta,
+    writeJudge,
+    resetAll,
+    loadFailure: loadFailure?.roomId === roomId ? loadFailure : null,
+  };
 }
 
 function useRoute() {
@@ -1008,17 +1035,18 @@ function JudgePatternReadOnlyCard({ judge }) {
   );
 }
 
-function Home({ navigate, meta }) {
+function Home({ navigate, meta, roomId }) {
   const judgesToShow = activeJudgeCount(meta);
   const [copiedPath, setCopiedPath] = useState(null);
   const base = getBaseURL();
+  const roomPath = roomBasePath(roomId);
   const accessItems = [
-    { key: "president", label: "PRESIDENT", path: "/president", tone: "president" },
-    { key: "public", label: "PUBLIC", path: "/public", tone: "public" },
+    { key: "president", label: "PRESIDENT", path: `${roomPath}/president`, tone: "president" },
+    { key: "public", label: "PUBLIC", path: `${roomPath}/public`, tone: "public" },
     ...Array.from({ length: judgesToShow }, (_, index) => ({
       key: `judge-${index + 1}`,
       label: `JUDGE ${index + 1}`,
-      path: `/judge/${index + 1}`,
+      path: `${roomPath}/judge/${index + 1}`,
       tone: "judge",
     })),
   ].map((access) => ({ ...access, accessUrl: `${base}${access.path}` }));
@@ -1105,7 +1133,7 @@ function PublicCompetitorPanel({ fighter, title, side, total, position, scoreCap
   );
 }
 
-function PublicScreen({ meta, judges, navigate }) {
+function PublicScreen({ meta, judges, navigate, roomId }) {
   const time = useClock(meta);
   const p = meta.patternResult || makeEmptyPatternResult();
   const scoringMode = getScoringMode(meta);
@@ -1138,7 +1166,7 @@ function PublicScreen({ meta, judges, navigate }) {
       <button
         type="button"
         className="patterns-public__home"
-        onClick={() => navigate("/")}
+        onClick={() => navigate(roomBasePath(roomId))}
         aria-label="Home"
       >
         <span aria-hidden="true">⌂</span>
@@ -1256,7 +1284,7 @@ function PublicScreen({ meta, judges, navigate }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, navigate }) {
+function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1485,10 +1513,12 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
     if (!canClosePatternEvaluation(meta, time, judges)) return;
 
     if (getScoringMode(meta) === "binary") {
+      const matchMetaRef = roomMetaRef(roomId);
+      const judgesQuery = roomJudgesQuery(roomId);
       const metaSnapshot = await getDoc(matchMetaRef);
       const persistedMeta = ensureMetaShape(metaSnapshot.exists() ? metaSnapshot.data() : meta);
       const persistedJudges = Array.from({ length: MAX_JUDGES }, (_, index) => makeJudge(index + 1));
-      const judgesSnapshot = await getDocs(query(judgesColRef));
+      const judgesSnapshot = await getDocs(judgesQuery);
       judgesSnapshot.forEach((judgeDocument) => {
         const index = Number(judgeDocument.id) - 1;
         if (index >= 0 && index < MAX_JUDGES) {
@@ -1637,7 +1667,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
       <div className="patterns-president">
         <header className="patterns-president__header">
           <nav className="patterns-president__actions" aria-label="President controls">
-            <AppButton className="patterns-president__action patterns-president__action--home" style={styles.gray} onClick={() => navigate("/")}><span aria-hidden="true">⌂</span> HOME</AppButton>
+            <AppButton className="patterns-president__action patterns-president__action--home" style={styles.gray} onClick={() => navigate(roomBasePath(roomId))}><span aria-hidden="true">⌂</span> HOME</AppButton>
             <AppButton className="patterns-president__action patterns-president__action--next" style={styles.green} onClick={prepareNextMatch}><span aria-hidden="true">→</span> NEXT</AppButton>
             <AppButton className="patterns-president__action patterns-president__action--reset" style={styles.red} onClick={resetEvaluation}><span aria-hidden="true">↻</span> RESET</AppButton>
             <AppButton
@@ -1802,7 +1832,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             <AppButton style={styles.red} onClick={() => applyPatternForcedWinner("hong")}>HONG WINNER</AppButton>
             <AppButton style={styles.blue} onClick={() => applyPatternForcedWinner("chong")}>CHONG WINNER</AppButton>
             <AppButton style={styles.gray} onClick={() => applyPatternForcedWinner("draw")}>DRAW</AppButton>
-            <button type="button" className="patterns-president__qr-home" onClick={() => navigate("/")}>QR ACCESS</button>
+            <button type="button" className="patterns-president__qr-home" onClick={() => navigate(roomBasePath(roomId))}>QR ACCESS</button>
           </div>
         </section>
 
@@ -1818,7 +1848,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   );
 }
 
-function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
+function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   useWakeLock();
   const time = useClock(meta);
   const prevFinishedRef = useRef(false);
@@ -1834,7 +1864,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
   if (judgeId > activeJudgeCount(meta)) {
     return (
       <div style={styles.page}>
-        <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>Inicio</AppButton>
+        <AppButton style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate(roomBasePath(roomId))}>Inicio</AppButton>
         <BrandHeaderSmall />
         <h1>Juez {judgeId}</h1>
         <div style={styles.panel}>Este juez no está activo en la configuración actual.</div>
@@ -1931,7 +1961,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
 
   return (
     <div className={scoringMode === "binary" ? "patterns-judge-page patterns-judge-page--binary" : "patterns-judge-page patterns-judge-page--points"} style={{ ...styles.page, background: "#06101c", minHeight: "100vh" }}>
-      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : "patterns-judge-points__exit"} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate("/")}>EXIT</AppButton>
+      <AppButton className={scoringMode === "binary" ? "patterns-judge-page__home" : "patterns-judge-points__exit"} style={{ ...styles.gray, boxShadow: "0 0 18px rgba(255,255,255,0.16)" }} onClick={() => navigate(roomBasePath(roomId))}>EXIT</AppButton>
 
       {scoringMode === "binary" ? (
         <div className="patterns-judge-page__brand" aria-label="Hwarang Scoring Universe Patterns GUP">
@@ -1978,8 +2008,9 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate }) {
 }
 
 export default function App() {
-  const { meta, judges, writeMeta, writeJudge, resetAll } = useFightData();
   const { path, navigate } = useRoute();
+  const { roomId, role, judgeId } = parseAppRoute(path);
+  const { meta, judges, writeMeta, writeJudge, resetAll, loadFailure } = useFightData(roomId);
 
   useEffect(() => {
     if (!meta) return;
@@ -1997,11 +2028,15 @@ export default function App() {
     }
   }, [meta, writeMeta]);
 
+  if (loadFailure) {
+    return <><GlobalAppStyle /><div style={styles.page}>No se pudo cargar Room {roomId}: {loadFailure.message}</div></>;
+  }
+
   if (!meta) {
     return <><GlobalAppStyle /><div style={styles.page}>Cargando...</div></>;
   }
 
-  if (path === "/president") {
+  if (role === "president") {
     return (
       <><GlobalAppStyle /><PresidentScreen
         meta={meta}
@@ -2010,28 +2045,27 @@ export default function App() {
         writeJudge={writeJudge}
         resetAll={resetAll}
         navigate={navigate}
+        roomId={roomId}
       /></>
     );
   }
 
-  if (path === "/public") {
-    return <><GlobalAppStyle /><PublicScreen meta={meta} judges={judges} navigate={navigate} /></>;
+  if (role === "public") {
+    return <><GlobalAppStyle /><PublicScreen meta={meta} judges={judges} navigate={navigate} roomId={roomId} /></>;
   }
 
-  if (path.startsWith("/judge/")) {
-    const n = Number(path.split("/")[2]);
-    if (n >= 1 && n <= MAX_JUDGES) {
-      return (
-        <><GlobalAppStyle /><JudgeScreen
-          meta={meta}
-          judges={judges}
-          writeJudge={writeJudge}
-          judgeId={n}
-          navigate={navigate}
-        /></>
-      );
-    }
+  if (role === "judge") {
+    return (
+      <><GlobalAppStyle /><JudgeScreen
+        meta={meta}
+        judges={judges}
+        writeJudge={writeJudge}
+        judgeId={judgeId}
+        navigate={navigate}
+        roomId={roomId}
+      /></>
+    );
   }
 
-  return <><GlobalAppStyle /><Home navigate={navigate} meta={meta} /></>;
+  return <><GlobalAppStyle /><Home navigate={navigate} meta={meta} roomId={roomId} /></>;
 }

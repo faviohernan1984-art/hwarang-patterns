@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, collection } from "firebase/firestore";
+import { getFirestore, doc, collection, documentId, query, where } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCARTpTfP6_BCCIzQmWJDNCtUs5ATt1Y-8",
@@ -14,8 +14,11 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
 
-// PATTERNS separado
-export const matchMetaRef = doc(db, "matches", "patterns");
-export const judgesColRef = collection(db, "matches", "patterns", "judges");
-export const judgeRef = (id) =>
-  doc(db, "matches", "patterns", "judges", String(id));
+export const roomMetaRef = (roomId) =>
+  doc(db, "rooms", roomId, "meta", "current");
+export const roomJudgesColRef = (roomId) =>
+  collection(db, "rooms", roomId, "judges");
+export const roomJudgesQuery = (roomId) =>
+  query(roomJudgesColRef(roomId), where(documentId(), "in", ["1", "2", "3", "4", "5"]));
+export const roomJudgeRef = (roomId, id) =>
+  doc(db, "rooms", roomId, "judges", String(id));

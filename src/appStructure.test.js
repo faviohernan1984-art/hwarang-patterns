@@ -79,3 +79,12 @@ test("match configuration is locked in the UI and guarded in handlers", () => {
   assert.match(presidentSource, /disabled=\{configurationLocked\} onClick=\{\(\) => setPatternJudgeCount\(5\)\}/);
   assert.match(presidentSource, /const resetEvaluation = async \(\) => \{\s*setLocalConfigurationLock\(false\)/);
 });
+
+test("Firestore snapshot failures are reported without bypassing the loading gate", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  assert.match(source, /reportLoadFailure\("meta snapshot", error\)/);
+  assert.match(source, /reportLoadFailure\("judges snapshot", error\)/);
+  assert.match(source, /Unable to load \$\{source\} for room/);
+  assert.match(source, /if \(loadFailure\)[\s\S]*?No se pudo cargar Room/);
+  assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
+});
