@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { binarySummary } from "./binarySummary.js";
 
-const vote = (value, sent = true) => ({ pattern: { binary: { vote: value, sent } } });
+const vote = (value, sent = true, evaluationId = 1) => ({ pattern: { binary: { evaluationId, vote: value, sent } } });
 const pending = () => vote(null, false);
-const meta = (patternJudges) => ({ config: { patternJudges } });
+const meta = (patternJudges, evaluationId = 1) => ({ evaluationId, config: { patternJudges } });
 
 const cases = [
   ["A", 3, [vote("hong"), vote("hong"), vote("chong")], { sent: 3, hong: 2, chong: 1, majorityRequired: 2, allSent: true, winner: "hong" }],
@@ -45,4 +45,16 @@ test("historical Points submissions do not count as Binary", () => {
   }));
   assert.equal(binarySummary(meta(3), judges).sent, 0);
   assert.equal(binarySummary(meta(3), judges).allSent, false);
+});
+
+test("Binary ignores a sent submission from an old evaluation", () => {
+  const judges = [vote("hong", true, 1), vote("chong", true, 2), vote("hong", true, 2)];
+  assert.deepEqual(binarySummary(meta(3, 2), judges), {
+    sent: 2, hong: 1, chong: 1, majorityRequired: 2, allSent: false, winner: null,
+  });
+});
+
+test("Binary keeps its existing result for the current evaluation", () => {
+  const judges = [vote("hong", true, 3), vote("chong", true, 3), vote("hong", true, 3)];
+  assert.equal(binarySummary(meta(3, 3), judges).winner, "hong");
 });

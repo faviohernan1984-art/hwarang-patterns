@@ -11,6 +11,7 @@ import {
 import { roomMetaRef, roomJudgesQuery, roomJudgeRef } from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
+import { patternSummary, patternTotalsForJudge } from "./patternSummary";
 import { parseAppRoute, roomBasePath } from "./roomRoutes";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
@@ -176,17 +177,18 @@ function GlobalAppStyle() {
   );
 }
 
-function makeJudge(id) {
+function makeJudge(id, evaluationId = 1) {
   return {
     id,
     hongPoints: 0,
     chongPoints: 0,
     history: [],
     pattern: {
+      evaluationId,
       hong: { tech: 0, power: 0, rhythm: 0, zero: false },
       chong: { tech: 0, power: 0, rhythm: 0, zero: false },
       sent: false,
-      binary: { vote: null, sent: false },
+      binary: { evaluationId, vote: null, sent: false },
     },
   };
 }
@@ -233,6 +235,7 @@ function makeEmptyPatternResult() {
 
 function makeInitialMeta() {
   return {
+    evaluationId: 1,
     mode: "pattern",
     config: {
       roundSeconds: 120,
@@ -298,7 +301,7 @@ function activeJudges(meta, judges) {
 function canClosePatternEvaluation(meta, time, judges) {
   if (meta?.status === "running" || time > 0 || meta?.patternResult?.completed) return false;
   if (getScoringMode(meta) === "binary") return binarySummary(meta, judges).allSent;
-  return activeJudges(meta, judges).every((judge) => judge.pattern?.sent === true);
+  return patternSummary(meta, judges).sent === activeJudgeCount(meta);
 }
 
 function formatTime(totalSeconds) {
@@ -324,44 +327,6 @@ function useClock(meta) {
   }, []);
 
   return getDerivedTime(meta, now);
-}
-
-function patternTotalsForJudge(judge) {
-  const hongZero = !!judge.pattern?.hong?.zero;
-  const chongZero = !!judge.pattern?.chong?.zero;
-
-  const hong = hongZero ? 0 : (judge.pattern?.hong?.tech || 0) + (judge.pattern?.hong?.power || 0) + (judge.pattern?.hong?.rhythm || 0);
-  const chong = chongZero ? 0 : (judge.pattern?.chong?.tech || 0) + (judge.pattern?.chong?.power || 0) + (judge.pattern?.chong?.rhythm || 0);
-
-  return { hong, chong };
-}
-
-function patternSummary(meta, judges) {
-  const currentJudges = activeJudges(meta, judges);
-
-  let hong = 0;
-  let chong = 0;
-  let sent = 0;
-
-  currentJudges.forEach((j) => {
-    if (j.pattern?.sent) {
-      sent += 1;
-      const totals = patternTotalsForJudge(j);
-      hong += totals.hong;
-      chong += totals.chong;
-    }
-  });
-
-  let winner = "en_curso";
-  if (meta.patternResult?.completed && meta.patternResult?.winner) {
-    winner = meta.patternResult.winner;
-  } else if (sent === currentJudges.length) {
-    if (hong > chong) winner = "hong";
-    else if (chong > hong) winner = "chong";
-    else winner = "draw";
-  }
-
-  return { hong, chong, sent, winner };
 }
 
 function getDisplaySides(meta, context = "public") {
@@ -472,9 +437,12 @@ function useFightData(roomId) {
 
   const resetAll = async () => {
     const matchMetaRef = roomMetaRef(roomId);
-    await setDoc(matchMetaRef, makeInitialMeta());
+    const metaSnap = await getDoc(matchMetaRef);
+    const current = ensureMetaShape(metaSnap.exists() ? metaSnap.data() : makeInitialMeta());
+    const evaluationId = current.evaluationId + 1;
+    await setDoc(matchMetaRef, { ...makeInitialMeta(), evaluationId });
     for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await setDoc(roomJudgeRef(roomId, i), makeJudge(i));
+      await setDoc(roomJudgeRef(roomId, i), makeJudge(i, evaluationId));
     }
   };
 
@@ -1145,7 +1113,7 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
   const revealPointsVoting = !binaryMode
     && time === 0
     && publicJudges.length > 0
-    && publicJudges.every((judge) => judge.pattern?.sent === true);
+    && publicJudges.every((judge) => judge.pattern?.sent === true && judge.pattern?.evaluationId === meta.evaluationId);
   const evaluationStatus = meta.patternResult?.completed
     ? "FINISHED"
     : revealBinaryVoting
@@ -1230,8 +1198,8 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
                 {publicJudges.map((judge) => {
                   const binary = judge.pattern?.binary;
                   const sent = binaryMode
-                    ? binary?.sent === true && (binary.vote === "hong" || binary.vote === "chong")
-                    : !!judge.pattern?.sent;
+                    ? binary?.sent === true && binary.evaluationId === meta.evaluationId && (binary.vote === "hong" || binary.vote === "chong")
+                    : !!judge.pattern?.sent && judge.pattern?.evaluationId === meta.evaluationId;
                   let revealedDecision = null;
                   if (binaryMode && revealBinaryVoting && sent) {
                     revealedDecision = binary.vote;
@@ -1309,9 +1277,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
   const binary = binarySummary(meta, judges);
   const activeSummary = scoringMode === "binary" ? binary : p;
   const scoringModeLocked = currentJudges.some((judge) => {
-    if (scoringMode === "points") return !!judge.pattern?.sent;
+    if (scoringMode === "points") return !!judge.pattern?.sent && judge.pattern?.evaluationId === meta.evaluationId;
     const binaryVote = judge.pattern?.binary;
-    return binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong");
+    return binaryVote?.sent === true && binaryVote.evaluationId === meta.evaluationId && (binaryVote.vote === "hong" || binaryVote.vote === "chong");
   });
   const [hidePresidentWinner, setHidePresidentWinner] = useState(false);
   const [forcedWinnerIntent, setForcedWinnerIntent] = useState(null);
@@ -1578,8 +1546,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
 
   const prepareNextMatch = async () => {
     setLocalConfigurationLock(false);
+    const evaluationId = meta.evaluationId + 1;
     for (let i = 1; i <= MAX_JUDGES; i += 1) {
-      await writeJudge(i, () => makeJudge(i));
+      await writeJudge(i, () => makeJudge(i, evaluationId));
     }
 
     await writeMeta((current) => {
@@ -1591,6 +1560,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
       current.phaseStartedAt = null;
       current.pausedRemaining = roundSeconds;
       current.patternResult = makeEmptyPatternResult();
+      current.evaluationId += 1;
       return current;
     });
   };
@@ -1782,8 +1752,8 @@ function PresidentScreen({ meta, judges, writeMeta, writeJudge, resetAll, naviga
             const totals = patternTotalsForJudge(judge);
             const binaryVote = judge.pattern?.binary;
             const sent = scoringMode === "binary"
-              ? binaryVote?.sent === true && (binaryVote.vote === "hong" || binaryVote.vote === "chong")
-              : !!judge.pattern?.sent;
+              ? binaryVote?.sent === true && binaryVote.evaluationId === meta.evaluationId && (binaryVote.vote === "hong" || binaryVote.vote === "chong")
+              : !!judge.pattern?.sent && judge.pattern?.evaluationId === meta.evaluationId;
             return (
               <article className={`patterns-president__judge${sent ? " is-sent" : " is-pending"}`} key={judge.id}>
                 <div className="patterns-president__judge-heading">
@@ -1852,6 +1822,8 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   useWakeLock();
   const time = useClock(meta);
   const prevFinishedRef = useRef(false);
+  const latestEvaluationIdRef = useRef(meta.evaluationId);
+  latestEvaluationIdRef.current = meta.evaluationId;
 
   useEffect(() => {
     const isFinished = !!meta.patternResult?.completed;
@@ -1878,13 +1850,18 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   const [localBinarySent, setLocalBinarySent] = useState(() => !!judge.pattern.binary.sent);
 
   useEffect(() => {
-    setLocalPattern(clone(judge.pattern));
-  }, [judgeId, JSON.stringify(judge.pattern)]);
+    const currentPattern = judge.pattern?.evaluationId === meta.evaluationId
+      ? judge.pattern
+      : makeJudge(judgeId, meta.evaluationId).pattern;
+    setLocalPattern(clone(currentPattern));
+  }, [judgeId, meta.evaluationId, JSON.stringify(judge.pattern)]);
 
   useEffect(() => {
-    setLocalBinaryVote(judge.pattern.binary.vote);
-    setLocalBinarySent(!!judge.pattern.binary.sent);
-  }, [judgeId, judge.pattern.binary.vote, judge.pattern.binary.sent]);
+    const binary = judge.pattern.binary;
+    const isCurrent = binary.evaluationId === meta.evaluationId;
+    setLocalBinaryVote(isCurrent ? binary.vote : null);
+    setLocalBinarySent(isCurrent && !!binary.sent);
+  }, [judgeId, meta.evaluationId, judge.pattern.binary.evaluationId, judge.pattern.binary.vote, judge.pattern.binary.sent]);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -1915,9 +1892,11 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   };
 
   const savePattern = async () => {
+    const evaluationId = meta.evaluationId;
     const nextJudge = await writeJudge(judgeId, (j) => {
       j.pattern = {
         ...j.pattern,
+        evaluationId,
         hong: { ...localPattern.hong },
         chong: { ...localPattern.chong },
         sent: true,
@@ -1925,24 +1904,30 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
       return j;
     });
 
-    setLocalPattern(clone(nextJudge.pattern));
+    if (latestEvaluationIdRef.current === evaluationId) {
+      setLocalPattern(clone(nextJudge.pattern));
+    }
   };
 
   const saveBinaryVote = async () => {
     if (!localBinaryVote || localBinarySent) return;
+    const evaluationId = meta.evaluationId;
     const nextJudge = await writeJudge(judgeId, (j) => {
-      if (j.pattern?.binary?.sent) return j;
+      if (j.pattern?.binary?.sent && j.pattern.binary.evaluationId === evaluationId) return j;
       j.pattern = {
         ...j.pattern,
         binary: {
+          evaluationId,
           vote: localBinaryVote,
           sent: true,
         },
       };
       return j;
     });
-    setLocalBinaryVote(nextJudge.pattern.binary.vote);
-    setLocalBinarySent(!!nextJudge.pattern.binary.sent);
+    if (latestEvaluationIdRef.current === evaluationId) {
+      setLocalBinaryVote(nextJudge.pattern.binary.vote);
+      setLocalBinarySent(!!nextJudge.pattern.binary.sent);
+    }
   };
 
   const judgeWinner = meta.patternResult?.winner;

@@ -22,10 +22,11 @@ test("Public and President winners use the viewport portal while Judge stays unc
 
 test("DRAW keeps the approved presentation in President, Public and Judge", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const summarySource = readFileSync(new URL("./patternSummary.js", import.meta.url), "utf8");
   assert.match(source, /if \(winner === "chong"\) return "#0602e0";\s*return "#fff200";/);
   assert.match(source, /return "DRAW";/);
   assert.match(source, /winner !== "hong" && winner !== "chong" && winner !== "draw"/);
-  assert.match(source, /else winner = "draw";/);
+  assert.match(summarySource, /else winner = "draw";/);
   assert.match(source, /applyPatternForcedWinner\("draw"\)/);
   assert.match(source, /<ViewportWinnerOverlay winner=\{meta\.patternResult\?\.winner\}/);
   assert.match(source, /<ViewportWinnerOverlay[\s\S]*?winner=\{presidentWinner\}[\s\S]*?mode="president"/);
@@ -41,7 +42,7 @@ test("CLOSE is guarded in both the button and handler", () => {
   assert.match(guardSource, /time > 0/);
   assert.match(guardSource, /patternResult\?\.completed/);
   assert.match(guardSource, /binarySummary\(meta, judges\)\.allSent/);
-  assert.match(guardSource, /activeJudges\(meta, judges\)\.every/);
+  assert.match(guardSource, /patternSummary\(meta, judges\)\.sent === activeJudgeCount\(meta\)/);
 
   const presidentStart = source.indexOf("function PresidentScreen");
   const judgeStart = source.indexOf("function JudgeScreen", presidentStart);
@@ -87,4 +88,27 @@ test("Firestore snapshot failures are reported without bypassing the loading gat
   assert.match(source, /Unable to load \$\{source\} for room/);
   assert.match(source, /if \(loadFailure\)[\s\S]*?No se pudo cargar Room/);
   assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
+});
+
+test("NEXT and RESET advance evaluationId while preserving Judge cleanup", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const nextStart = source.indexOf("const prepareNextMatch = async");
+  const nextEnd = source.indexOf("const applyPatternForcedWinner", nextStart);
+  const nextSource = source.slice(nextStart, nextEnd);
+  const resetStart = source.indexOf("const resetAll = async");
+  const resetEnd = source.indexOf("return {", resetStart);
+  const resetSource = source.slice(resetStart, resetEnd);
+
+  assert.match(nextSource, /current\.evaluationId \+= 1/);
+  assert.match(nextSource, /for \(let i = 1; i <= MAX_JUDGES; i \+= 1\)/);
+  assert.match(resetSource, /const evaluationId = current\.evaluationId \+ 1/);
+  assert.match(resetSource, /makeJudge\(i, evaluationId\)/);
+});
+
+test("SEND captures the active evaluationId for Points and Binary", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
+  assert.match(judgeSource, /const savePattern = async \(\) => \{\s*const evaluationId = meta\.evaluationId/);
+  assert.match(judgeSource, /const saveBinaryVote = async \(\) => \{[\s\S]*?const evaluationId = meta\.evaluationId/);
+  assert.match(judgeSource, /binary: \{\s*evaluationId,\s*vote: localBinaryVote/);
 });
