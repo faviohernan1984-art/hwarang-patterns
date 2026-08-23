@@ -1024,15 +1024,22 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
   return (
     <div className="patterns-judge-points">
       <div className="patterns-judge-points__band">POINTS · GUP</div>
-      <div className={`patterns-judge-points__status${locked ? " is-sent" : ""}`}>{locked ? "SENT" : "SELECT SCORES"}</div>
+      <div className={`patterns-judge-points__status${locked ? " is-sent" : ""}`}>{locked ? "SCORE SENT" : "SELECT SCORES"}</div>
 
-      <div className="patterns-judge-points__joystick">
+      <div className={`patterns-judge-points__joystick${locked ? " is-sent" : ""}`}>
         <SidePanel side="hong" title={HONG} />
         <SidePanel side="chong" title={CHONG} />
       </div>
 
       <div className="patterns-judge-points__send-wrap">
-        <AppButton className="patterns-judge-points__send" style={styles.green} onClick={onSave}>Guardar / Enviar</AppButton>
+        <AppButton
+          className={`patterns-judge-points__send${locked ? " is-confirmed" : ""}`}
+          style={styles.green}
+          disabled={locked}
+          onClick={onSave}
+        >
+          {locked ? "✓ SCORE REGISTERED" : "Guardar / Enviar"}
+        </AppButton>
       </div>
     </div>
   );

@@ -162,6 +162,20 @@ test("Judge resets Points and Binary locally when evaluationId changes", () => {
   assert.match(judgeSource, /j\.pattern\.binary\.evaluationId === evaluationId/);
 });
 
+test("Points SEND uses the existing sent state for integrated confirmation", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const pointsStart = source.indexOf("function JudgePatternColorPanel");
+  const pointsEnd = source.indexOf("function JudgePatternReadOnlyCard", pointsStart);
+  const pointsSource = source.slice(pointsStart, pointsEnd);
+
+  assert.match(pointsSource, /\{locked \? "SCORE SENT" : "SELECT SCORES"\}/);
+  assert.match(pointsSource, /patterns-judge-points__joystick\$\{locked \? " is-sent" : ""\}/);
+  assert.match(pointsSource, /patterns-judge-points__send\$\{locked \? " is-confirmed" : ""\}/);
+  assert.match(pointsSource, /disabled=\{locked\}/);
+  assert.match(pointsSource, /\{locked \? "✓ SCORE REGISTERED" : "Guardar \/ Enviar"\}/);
+  assert.doesNotMatch(pointsSource, /setTimeout|onSnapshot|writeJudge/);
+});
+
 test("President and Public indicators reject submissions from old evaluations", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const publicSource = source.slice(source.indexOf("function PublicScreen"), source.indexOf("function PresidentScreen"));
