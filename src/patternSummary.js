@@ -6,6 +6,28 @@ export function patternTotalsForJudge(judge) {
   return { hong, chong };
 }
 
+export function isPatternSideComplete(side) {
+  if (side?.zero === true) return true;
+  return [1, 2, 3, 4, 5].includes(side?.tech)
+    && [1, 2, 3].includes(side?.power)
+    && [1, 2, 3].includes(side?.rhythm);
+}
+
+export function isCurrentPatternSubmission(meta, judge) {
+  return judge.pattern?.sent === true && judge.pattern?.evaluationId === meta?.evaluationId;
+}
+
+export function currentPatternTotalsForJudge(meta, judge) {
+  if (!isCurrentPatternSubmission(meta, judge)) {
+    return { hong: 0, chong: 0 };
+  }
+  return patternTotalsForJudge(judge);
+}
+
+export function currentPatternHasZero(meta, judge, side) {
+  return isCurrentPatternSubmission(meta, judge) && judge.pattern?.[side]?.zero === true;
+}
+
 export function patternSummary(meta, judges) {
   const judgeCount = meta?.config?.patternJudges === 5 ? 5 : 3;
   const currentJudges = judges.slice(0, judgeCount);
@@ -14,9 +36,9 @@ export function patternSummary(meta, judges) {
   let sent = 0;
 
   currentJudges.forEach((judge) => {
-    if (judge.pattern?.sent && judge.pattern?.evaluationId === meta?.evaluationId) {
+    if (isCurrentPatternSubmission(meta, judge)) {
       sent += 1;
-      const totals = patternTotalsForJudge(judge);
+      const totals = currentPatternTotalsForJudge(meta, judge);
       hong += totals.hong;
       chong += totals.chong;
     }

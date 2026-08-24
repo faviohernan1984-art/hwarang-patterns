@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/binarySummary.test.js src/patternSummary.test.js src/appStructure.test.js src/roomRoutes.test.js src/firebaseRooms.test.js src/firestoreRules.test.js src/firestoreRooms.emulator.test.js",
+    "test": "node --test src/binarySummary.test.js src/patternSummary.test.js src/submissionPayloads.test.js src/appStructure.test.js src/roomRoutes.test.js src/firebaseRooms.test.js src/firestoreRules.test.js src/firestoreRooms.emulator.test.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

@@ -8,10 +8,18 @@ import {
   getDoc,
   getDocs,
 } from "firebase/firestore";
-import { roomMetaRef, roomControlRef, roomJudgesQuery, roomJudgeRef } from "./firebase";
+import {
+  roomMetaRef,
+  roomControlRef,
+  roomJudgesQuery,
+  roomJudgeRef,
+  roomSubmissionsQuery,
+  roomSubmissionRef,
+} from "./firebase";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
-import { patternSummary, patternTotalsForJudge } from "./patternSummary";
+import { patternSummary, patternTotalsForJudge, currentPatternTotalsForJudge, currentPatternHasZero, isPatternSideComplete } from "./patternSummary";
+import { makePointsSubmission, makeBinarySubmission, currentSubmission, submissionToJudge } from "./submissionPayloads";
 import { parseAppRoute, roomBasePath } from "./roomRoutes";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
@@ -355,37 +363,28 @@ function getDisplaySides(meta, context = "public") {
 async function ensureInitialDocs(roomId) {
   const matchMetaRef = roomMetaRef(roomId);
   const controlRef = roomControlRef(roomId);
-  const judgesQuery = roomJudgesQuery(roomId);
   const [metaSnap, controlSnap] = await Promise.all([getDoc(matchMetaRef), getDoc(controlRef)]);
   const migrationSource = metaSnap.exists() ? ensureMetaShape(metaSnap.data()) : makeInitialMeta();
   const initialWrites = [];
   if (!controlSnap.exists()) initialWrites.push(setDoc(controlRef, controlFromMeta(migrationSource)));
   if (!metaSnap.exists()) initialWrites.push(setDoc(matchMetaRef, legacyMetaFromMeta(migrationSource)));
   await Promise.all(initialWrites);
-
-  const existing = await getDocs(judgesQuery);
-  const ids = new Set(existing.docs.map((d) => d.id));
-
-  for (let i = 1; i <= MAX_JUDGES; i += 1) {
-    if (!ids.has(String(i))) {
-      await setDoc(roomJudgeRef(roomId, i), makeJudge(i));
-    }
-  }
 }
 
-function useFightData(roomId) {
+function useFightData(roomId, role, judgeId) {
+  const roleDataKey = `${roomId}:${role}:${judgeId || "none"}`;
   const [control, setControl] = useState(null);
   const [legacyMeta, setLegacyMeta] = useState(null);
   const [judges, setJudges] = useState(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
+  const [ownSubmission, setOwnSubmission] = useState(null);
   const [loadedControlRoomId, setLoadedControlRoomId] = useState(null);
   const [loadedMetaRoomId, setLoadedMetaRoomId] = useState(null);
-  const [loadedJudgesRoomId, setLoadedJudgesRoomId] = useState(null);
+  const [loadedRoleDataRoomId, setLoadedRoleDataRoomId] = useState(null);
   const [loadFailure, setLoadFailure] = useState(null);
 
   useEffect(() => {
     const matchMetaRef = roomMetaRef(roomId);
     const controlRef = roomControlRef(roomId);
-    const judgesQuery = roomJudgesQuery(roomId);
     const reportLoadFailure = (source, error) => {
       console.error(`[Firestore] Unable to load ${source} for room "${roomId}".`, error);
       setLoadFailure({ roomId, source, message: error?.message || String(error) });
@@ -409,23 +408,50 @@ function useFightData(roomId) {
       setLoadedMetaRoomId(roomId);
     }, (error) => reportLoadFailure("meta snapshot", error));
 
-    const unsubJudges = onSnapshot(judgesQuery, (snap) => {
-      markRoomConnection();
-      const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
-      snap.docs.forEach((doc) => {
-        const idx = Number(doc.id) - 1;
-        if (idx >= 0 && idx < MAX_JUDGES) next[idx] = normalizeJudge(doc.data(), idx + 1);
-      });
-      setJudges(next);
-      setLoadedJudgesRoomId(roomId);
-    }, (error) => reportLoadFailure("judges snapshot", error));
+    let unsubRoleData = () => {};
+    if (role === "president") {
+      unsubRoleData = onSnapshot(roomSubmissionsQuery(roomId), (snap) => {
+        markRoomConnection();
+        const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
+        snap.docs.forEach((submissionDocument) => {
+          const idx = Number(submissionDocument.id) - 1;
+          if (idx >= 0 && idx < MAX_JUDGES) next[idx] = submissionToJudge(submissionDocument.data(), idx + 1);
+        });
+        setJudges(next);
+        setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId || "none"}`);
+      }, (error) => reportLoadFailure("submissions snapshot", error));
+    } else if (role === "public") {
+      unsubRoleData = onSnapshot(roomJudgesQuery(roomId), (snap) => {
+        markRoomConnection();
+        const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
+        snap.docs.forEach((judgeDocument) => {
+          const idx = Number(judgeDocument.id) - 1;
+          if (idx >= 0 && idx < MAX_JUDGES) next[idx] = normalizeJudge(judgeDocument.data(), idx + 1);
+        });
+        setJudges(next);
+        setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId || "none"}`);
+      }, (error) => reportLoadFailure("judges snapshot", error));
+    } else if (role === "judge" && judgeId) {
+      unsubRoleData = onSnapshot(roomSubmissionRef(roomId, judgeId), (snap) => {
+        markRoomConnection();
+        setOwnSubmission(snap.exists() ? snap.data() : null);
+        const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
+        if (snap.exists()) next[judgeId - 1] = submissionToJudge(snap.data(), judgeId);
+        setJudges(next);
+        setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId}`);
+      }, (error) => reportLoadFailure("own submission snapshot", error));
+    } else {
+      setOwnSubmission(null);
+      setJudges(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
+      setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId || "none"}`);
+    }
 
     return () => {
       unsubControl();
       unsubMeta();
-      unsubJudges();
+      unsubRoleData();
     };
-  }, [roomId]);
+  }, [roomId, role, judgeId]);
 
   const writeMeta = async (mutator) => {
     const matchMetaRef = roomMetaRef(roomId);
@@ -448,15 +474,13 @@ function useFightData(roomId) {
     await Promise.all(writes);
   };
 
-  const writeJudge = async (id, mutator) => {
-    const ref = roomJudgeRef(roomId, id);
-    const snap = await getDoc(ref);
-    const current = snap.exists() ? normalizeJudge(snap.data(), id) : makeJudge(id);
-    const draft = clone(current);
-    const result = typeof mutator === "function" ? mutator(draft) : mutator;
-    const next = result ?? draft;
-    await setDoc(ref, next);
-    return next;
+  const writeSubmission = async (id, submission) => {
+    await setDoc(roomSubmissionRef(roomId, id), submission);
+    return submission;
+  };
+
+  const publishLegacyJudge = async (id, judge) => {
+    await setDoc(roomJudgeRef(roomId, id), judge);
   };
 
   const resetAll = async () => {
@@ -473,12 +497,14 @@ function useFightData(roomId) {
   };
 
   return {
-    meta: loadedControlRoomId === roomId && loadedMetaRoomId === roomId && loadedJudgesRoomId === roomId
+    meta: loadedControlRoomId === roomId && loadedMetaRoomId === roomId && loadedRoleDataRoomId === roleDataKey
       ? mergeRoomState(control, legacyMeta)
       : null,
     judges,
+    ownSubmission,
     writeMeta,
-    writeJudge,
+    writeSubmission,
+    publishLegacyJudge,
     resetAll,
     loadFailure: loadFailure?.roomId === roomId ? loadFailure : null,
   };
@@ -984,6 +1010,8 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
   const locked = !!judge.pattern.sent;
   const hongZero = !!judge.pattern.hong.zero;
   const chongZero = !!judge.pattern.chong.zero;
+  const patternComplete = isPatternSideComplete(judge.pattern.hong)
+    && isPatternSideComplete(judge.pattern.chong);
 
   const totals = patternTotalsForJudge(judge);
 
@@ -1033,12 +1061,12 @@ function JudgePatternColorPanel({ judge, onSelectValue, onSave, onToggleZeroSide
 
       <div className="patterns-judge-points__send-wrap">
         <AppButton
-          className={`patterns-judge-points__send${locked ? " is-confirmed" : ""}`}
+          className={`patterns-judge-points__send${locked ? " is-confirmed" : patternComplete ? " is-ready" : ""}`}
           style={styles.green}
-          disabled={locked}
+          disabled={locked || !patternComplete}
           onClick={onSave}
         >
-          {locked ? "✓ SCORE REGISTERED" : "Guardar / Enviar"}
+          {locked ? "✓ SCORE REGISTERED" : "SEND"}
         </AppButton>
       </div>
     </div>
@@ -1321,7 +1349,7 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }) {
+function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1358,12 +1386,42 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
   const latestForceRef = useRef(null);
   const forceSequenceRef = useRef(0);
   const editorSaveTimeoutRef = useRef(null);
+  const publishedSubmissionRef = useRef(new Map());
   const { left, right } = getDisplaySides(meta, "president");
   const persistedConfigurationLock = meta.status === "running"
     || meta.phase === "finished"
     || !!meta.patternResult?.completed
     || Number(meta.pausedRemaining) < Number(meta.config?.roundSeconds);
   const configurationLocked = localConfigurationLock || persistedConfigurationLock;
+
+  useEffect(() => {
+    setHidePresidentWinner(false);
+    setForcedWinnerIntent(null);
+    setSettledForceToken(null);
+    latestForceRef.current = null;
+    forceSequenceRef.current = 0;
+  }, [meta.evaluationId]);
+
+  useEffect(() => {
+    activeJudges(meta, judges).forEach((judge) => {
+      const isCurrentPoints = scoringMode === "points"
+        && judge.pattern?.sent === true
+        && judge.pattern.evaluationId === meta.evaluationId;
+      const binary = judge.pattern?.binary;
+      const isCurrentBinary = scoringMode === "binary"
+        && binary?.sent === true
+        && binary.evaluationId === meta.evaluationId;
+      if (!isCurrentPoints && !isCurrentBinary) return;
+
+      const token = JSON.stringify(judge);
+      if (publishedSubmissionRef.current.get(judge.id) === token) return;
+      publishedSubmissionRef.current.set(judge.id, token);
+      publishLegacyJudge(judge.id, judge).catch((error) => {
+        publishedSubmissionRef.current.delete(judge.id);
+        console.error("Unable to publish legacy Judge projection.", error);
+      });
+    });
+  }, [judges, meta, meta.evaluationId, scoringMode, publishLegacyJudge]);
 
   useEffect(() => {
     const next = {
@@ -1552,18 +1610,18 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
     if (getScoringMode(meta) === "binary") {
       const matchMetaRef = roomMetaRef(roomId);
       const controlRef = roomControlRef(roomId);
-      const judgesQuery = roomJudgesQuery(roomId);
+      const submissionsQuery = roomSubmissionsQuery(roomId);
       const [controlSnapshot, metaSnapshot] = await Promise.all([getDoc(controlRef), getDoc(matchMetaRef)]);
       const persistedMeta = mergeRoomState(
         controlSnapshot.exists() ? controlSnapshot.data() : meta,
         metaSnapshot.exists() ? metaSnapshot.data() : legacyMetaFromMeta(meta)
       );
       const persistedJudges = Array.from({ length: MAX_JUDGES }, (_, index) => makeJudge(index + 1));
-      const judgesSnapshot = await getDocs(judgesQuery);
-      judgesSnapshot.forEach((judgeDocument) => {
-        const index = Number(judgeDocument.id) - 1;
+      const submissionsSnapshot = await getDocs(submissionsQuery);
+      submissionsSnapshot.forEach((submissionDocument) => {
+        const index = Number(submissionDocument.id) - 1;
         if (index >= 0 && index < MAX_JUDGES) {
-          persistedJudges[index] = normalizeJudge(judgeDocument.data(), index + 1);
+          persistedJudges[index] = submissionToJudge(submissionDocument.data(), index + 1);
         }
       });
       const live = binarySummary(persistedMeta, persistedJudges);
@@ -1817,7 +1875,7 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
 
         <section className="patterns-president__judge-band" style={{ "--patterns-president-judges": currentJudges.length }}>
           {currentJudges.map((judge) => {
-            const totals = patternTotalsForJudge(judge);
+            const totals = currentPatternTotalsForJudge(meta, judge);
             const binaryVote = judge.pattern?.binary;
             const sent = scoringMode === "binary"
               ? binaryVote?.sent === true && binaryVote.evaluationId === meta.evaluationId && (binaryVote.vote === "hong" || binaryVote.vote === "chong")
@@ -1836,7 +1894,7 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
                       <div className={`is-${side}${selected ? " is-selected" : ""}`} key={side}>
                         <span>{fighter.visualLabel}</span>
                         <strong>{scoringMode === "binary" ? selected ? fighter.visualLabel : "—" : totals[side]}</strong>
-                        {scoringMode === "points" && <small>{judge.pattern?.[side]?.zero ? `${fighter.visualLabel} ABSOLUTE ZERO` : ""}</small>}
+                        {scoringMode === "points" && <small>{currentPatternHasZero(meta, judge, side) ? `${fighter.visualLabel} ABSOLUTE ZERO` : ""}</small>}
                       </div>
                     );
                   })}
@@ -1886,9 +1944,10 @@ function PresidentScreen({ meta, judges, writeMeta, resetAll, navigate, roomId }
   );
 }
 
-function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
+function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, navigate, roomId }) {
   useWakeLock();
   const time = useClock(meta);
+  const scoringMode = getScoringMode(meta);
   const prevFinishedRef = useRef(false);
   const latestEvaluationIdRef = useRef(meta.evaluationId);
   latestEvaluationIdRef.current = meta.evaluationId;
@@ -1913,23 +1972,101 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   }
 
   const judge = judges.find((j) => j.id === judgeId) || makeJudge(judgeId);
-  const [localPattern, setLocalPattern] = useState(() => clone(judge.pattern));
-  const [localBinaryVote, setLocalBinaryVote] = useState(() => judge.pattern.binary.vote);
-  const [localBinarySent, setLocalBinarySent] = useState(() => !!judge.pattern.binary.sent);
+  const initialSubmission = currentSubmission(ownSubmission, {
+    evaluationId: meta.evaluationId,
+    scoringMode,
+    judgeId,
+  });
+  const initialJudge = initialSubmission
+    ? submissionToJudge(initialSubmission, judgeId)
+    : makeJudge(judgeId, meta.evaluationId);
+  const [localPattern, setLocalPattern] = useState(() => clone(initialJudge.pattern));
+  const [localBinaryVote, setLocalBinaryVote] = useState(() => initialJudge.pattern.binary.vote);
+  const [localBinarySent, setLocalBinarySent] = useState(() => !!initialJudge.pattern.binary.sent);
+  const judgeSyncDiagnosticSequenceRef = useRef(0);
 
   useEffect(() => {
-    const currentPattern = judge.pattern?.evaluationId === meta.evaluationId
-      ? judge.pattern
-      : makeJudge(judgeId, meta.evaluationId).pattern;
-    setLocalPattern(clone(currentPattern));
-  }, [judgeId, meta.evaluationId, JSON.stringify(judge.pattern)]);
+    const validSubmission = currentSubmission(ownSubmission, {
+      evaluationId: meta.evaluationId,
+      scoringMode,
+      judgeId,
+    });
+    const hydratedJudge = validSubmission
+      ? submissionToJudge(validSubmission, judgeId)
+      : makeJudge(judgeId, meta.evaluationId);
+    const diagnosticSequence = judgeSyncDiagnosticSequenceRef.current + 1;
+    judgeSyncDiagnosticSequenceRef.current = diagnosticSequence;
+
+    console.log("[Judge 2.4 diagnostic] SYNC", {
+      sequence: diagnosticSequence,
+      branch: validSubmission ? "REHYDRATE" : "CLEAR",
+      control: {
+        evaluationId: meta.evaluationId,
+        scoringMode,
+      },
+      ownSubmission: ownSubmission
+        ? {
+            evaluationId: ownSubmission.evaluationId,
+            mode: ownSubmission.mode,
+            judgeId: ownSubmission.judgeId,
+            sent: ownSubmission.sent,
+          }
+        : null,
+      isCurrentSubmission: !!validSubmission,
+      localBefore: {
+        pattern: clone(localPattern),
+        binaryVote: localBinaryVote,
+        binarySent: localBinarySent,
+      },
+    });
+
+    setLocalPattern(clone(
+      scoringMode === "points" && validSubmission
+        ? hydratedJudge.pattern
+        : makeJudge(judgeId, meta.evaluationId).pattern
+    ));
+    setLocalBinaryVote(scoringMode === "binary" && validSubmission ? hydratedJudge.pattern.binary.vote : null);
+    setLocalBinarySent(scoringMode === "binary" && validSubmission ? !!hydratedJudge.pattern.binary.sent : false);
+  }, [judgeId, meta.evaluationId, scoringMode, JSON.stringify(ownSubmission)]);
 
   useEffect(() => {
-    const binary = judge.pattern.binary;
-    const isCurrent = binary.evaluationId === meta.evaluationId;
-    setLocalBinaryVote(isCurrent ? binary.vote : null);
-    setLocalBinarySent(isCurrent && !!binary.sent);
-  }, [judgeId, meta.evaluationId, judge.pattern.binary.evaluationId, judge.pattern.binary.vote, judge.pattern.binary.sent]);
+    const validSubmission = currentSubmission(ownSubmission, {
+      evaluationId: meta.evaluationId,
+      scoringMode,
+      judgeId,
+    });
+
+    console.log("[Judge 2.4 diagnostic] STATE", {
+      sequence: judgeSyncDiagnosticSequenceRef.current,
+      control: {
+        evaluationId: meta.evaluationId,
+        scoringMode,
+      },
+      ownSubmission: ownSubmission
+        ? {
+            evaluationId: ownSubmission.evaluationId,
+            mode: ownSubmission.mode,
+            judgeId: ownSubmission.judgeId,
+            sent: ownSubmission.sent,
+          }
+        : null,
+      isCurrentSubmission: !!validSubmission,
+      renderedFrom: scoringMode === "points" ? "localPattern" : "localBinaryVote/localBinarySent",
+      localAfter: {
+        pattern: clone(localPattern),
+        binaryVote: localBinaryVote,
+        binarySent: localBinarySent,
+      },
+    });
+  }, [
+    judgeId,
+    meta.evaluationId,
+    scoringMode,
+    JSON.stringify(ownSubmission),
+    JSON.stringify(localPattern),
+    localBinaryVote,
+    localBinarySent,
+  ]);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -1960,48 +2097,42 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
   };
 
   const savePattern = async () => {
+    const patternComplete = isPatternSideComplete(localPattern.hong)
+      && isPatternSideComplete(localPattern.chong);
+    if (!patternComplete) return;
     const evaluationId = meta.evaluationId;
-    const nextJudge = await writeJudge(judgeId, (j) => {
-      j.pattern = {
-        ...j.pattern,
-        evaluationId,
+    await writeSubmission(judgeId, makePointsSubmission({
+      evaluationId,
+      judgeId,
+      scores: {
         hong: { ...localPattern.hong },
         chong: { ...localPattern.chong },
-        sent: true,
-      };
-      return j;
-    });
+      },
+    }));
 
     if (latestEvaluationIdRef.current === evaluationId) {
-      setLocalPattern(clone(nextJudge.pattern));
+      setLocalPattern((current) => ({ ...current, evaluationId, sent: true }));
     }
   };
 
   const saveBinaryVote = async () => {
     if (!localBinaryVote || localBinarySent) return;
     const evaluationId = meta.evaluationId;
-    const nextJudge = await writeJudge(judgeId, (j) => {
-      if (j.pattern?.binary?.sent && j.pattern.binary.evaluationId === evaluationId) return j;
-      j.pattern = {
-        ...j.pattern,
-        binary: {
-          evaluationId,
-          vote: localBinaryVote,
-          sent: true,
-        },
-      };
-      return j;
-    });
+    const vote = localBinaryVote;
+    await writeSubmission(judgeId, makeBinarySubmission({
+      evaluationId,
+      judgeId,
+      vote,
+    }));
     if (latestEvaluationIdRef.current === evaluationId) {
-      setLocalBinaryVote(nextJudge.pattern.binary.vote);
-      setLocalBinarySent(!!nextJudge.pattern.binary.sent);
+      setLocalBinaryVote(vote);
+      setLocalBinarySent(true);
     }
   };
 
   const judgeWinner = meta.patternResult?.winner;
   const showJudgeWinner = !!meta.patternResult?.completed;
   const judgePreview = { ...judge, pattern: localPattern };
-  const scoringMode = getScoringMode(meta);
   const judgeStatus = meta.phase === "finished"
     ? "FINISHED"
     : meta.status === "running"
@@ -2063,7 +2194,7 @@ function JudgeScreen({ meta, judges, writeJudge, judgeId, navigate, roomId }) {
 export default function App() {
   const { path, navigate } = useRoute();
   const { roomId, role, judgeId } = parseAppRoute(path);
-  const { meta, judges, writeMeta, writeJudge, resetAll, loadFailure } = useFightData(roomId);
+  const { meta, judges, ownSubmission, writeMeta, writeSubmission, publishLegacyJudge, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
 
   useEffect(() => {
     if (!meta) return;
@@ -2095,6 +2226,7 @@ export default function App() {
         meta={meta}
         judges={judges}
         writeMeta={writeMeta}
+        publishLegacyJudge={publishLegacyJudge}
         resetAll={resetAll}
         navigate={navigate}
         roomId={roomId}
@@ -2111,7 +2243,8 @@ export default function App() {
       <><GlobalAppStyle /><JudgeScreen
         meta={meta}
         judges={judges}
-        writeJudge={writeJudge}
+        ownSubmission={ownSubmission}
+        writeSubmission={writeSubmission}
         judgeId={judgeId}
         navigate={navigate}
         roomId={roomId}

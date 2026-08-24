@@ -24,3 +24,9 @@ export const roomJudgesQuery = (roomId) =>
   query(roomJudgesColRef(roomId), where(documentId(), "in", ["1", "2", "3", "4", "5"]));
 export const roomJudgeRef = (roomId, id) =>
   doc(db, "rooms", roomId, "judges", String(id));
+export const roomSubmissionsColRef = (roomId) =>
+  collection(db, "rooms", roomId, "submissions");
+export const roomSubmissionsQuery = (roomId) =>
+  query(roomSubmissionsColRef(roomId), where(documentId(), "in", ["1", "2", "3", "4", "5"]));
+export const roomSubmissionRef = (roomId, id) =>
+  doc(db, "rooms", roomId, "submissions", String(id));

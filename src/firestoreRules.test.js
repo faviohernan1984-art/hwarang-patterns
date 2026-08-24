@@ -9,6 +9,10 @@ test("Rooms rules are limited to valid room control, meta and judge documents", 
   assert.match(rules, /match \/rooms\/\{roomId\}/);
   assert.match(rules, /match \/meta\/current/);
   assert.match(rules, /match \/control\/current/);
+  assert.match(rules, /match \/submissions\/\{judgeId\}/);
+  assert.match(rules, /validPatternsSubmissionJudge\(judgeId\)/);
+  assert.match(rules, /request\.resource\.data\.judgeId == 5/);
+  assert.match(rules, /hasOnly\(\[\s*"evaluationId", "judgeId", "mode", "scores", "sent", "submittedAt"/);
   assert.match(rules, /judgeId in \["1", "2", "3", "4", "5"\]/);
   assert.match(rules, /allow delete: if false;/);
   assert.doesNotMatch(rules, /match \/rooms\/\{document=\*\*\}/);

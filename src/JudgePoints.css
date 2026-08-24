@@ -343,6 +343,16 @@
   box-shadow: 0 0 15px rgba(255, 0, 0, 0.2) !important;
 }
 
+.patterns-judge-points__send.is-ready {
+  border-color: rgba(134, 239, 172, 0.95) !important;
+  background: linear-gradient(180deg, rgba(22, 163, 74, 0.96), rgba(20, 83, 45, 0.96)) !important;
+  color: #f0fdf4 !important;
+  box-shadow: 0 0 22px rgba(34, 197, 94, 0.58), inset 0 0 12px rgba(255, 255, 255, 0.1) !important;
+  opacity: 1;
+  filter: none;
+  animation: patternsJudgePointsReadyButton 650ms ease-out;
+}
+
 .patterns-judge-points__send.is-confirmed,
 .patterns-judge-points__send.is-confirmed:disabled {
   border-color: rgba(134, 239, 172, 0.92) !important;
@@ -376,6 +386,18 @@
   0% { transform: scale(0.96); filter: brightness(1); }
   45% { transform: scale(1.035); filter: brightness(1.35); }
   100% { transform: scale(1); filter: brightness(1); }
+}
+
+@keyframes patternsJudgePointsReadyButton {
+  0% { transform: scale(0.97); filter: brightness(1); }
+  45% { transform: scale(1.04); filter: brightness(1.3); box-shadow: 0 0 32px rgba(34, 197, 94, 0.82), inset 0 0 16px rgba(255, 255, 255, 0.16); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .patterns-judge-points__send.is-ready {
+    animation: none;
+  }
 }
 
 @keyframes patternsJudgePointsRegisteredFrame {

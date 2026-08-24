@@ -74,6 +74,32 @@ service cloud.firestore {
       return roomId.matches('^[A-Za-z0-9_-]{1,64}$');
     }
 
+    function validPatternsSubmissionJudge(judgeId) {
+      return judgeId in ["1", "2", "3", "4", "5"]
+        && ((judgeId == "1" && request.resource.data.judgeId == 1)
+          || (judgeId == "2" && request.resource.data.judgeId == 2)
+          || (judgeId == "3" && request.resource.data.judgeId == 3)
+          || (judgeId == "4" && request.resource.data.judgeId == 4)
+          || (judgeId == "5" && request.resource.data.judgeId == 5));
+    }
+
+    function validPatternsSubmission() {
+      return request.resource.data.evaluationId is int
+        && request.resource.data.evaluationId >= 1
+        && request.resource.data.sent == true
+        && request.resource.data.submittedAt is int
+        && ((request.resource.data.mode == "points"
+            && request.resource.data.keys().hasOnly([
+              "evaluationId", "judgeId", "mode", "scores", "sent", "submittedAt"
+            ])
+            && request.resource.data.scores.keys().hasOnly(["hong", "chong"]))
+          || (request.resource.data.mode == "binary"
+            && request.resource.data.keys().hasOnly([
+              "evaluationId", "judgeId", "mode", "vote", "sent", "submittedAt"
+            ])
+            && request.resource.data.vote in ["hong", "chong"]));
+    }
+
     match /matches/{matchId} {
       allow read: if isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
       allow create: if isPresident(matchId) && validMetaCreate();
@@ -107,6 +133,15 @@ service cloud.firestore {
     match /rooms/{roomId} {
       match /control/current {
         allow read, create, update: if validPatternsRoomId(roomId);
+        allow delete: if false;
+      }
+
+      match /submissions/{judgeId} {
+        allow read: if validPatternsRoomId(roomId)
+          && judgeId in ["1", "2", "3", "4", "5"];
+        allow create, update: if validPatternsRoomId(roomId)
+          && validPatternsSubmissionJudge(judgeId)
+          && validPatternsSubmission();
         allow delete: if false;
       }
 

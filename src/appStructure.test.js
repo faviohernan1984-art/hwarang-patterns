@@ -86,6 +86,8 @@ test("Firestore snapshot failures are reported without bypassing the loading gat
   assert.match(source, /reportLoadFailure\("control snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("meta snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("judges snapshot", error\)/);
+  assert.match(source, /reportLoadFailure\("submissions snapshot", error\)/);
+  assert.match(source, /reportLoadFailure\("own submission snapshot", error\)/);
   assert.match(source, /Unable to load \$\{source\} for room/);
   assert.match(source, /if \(loadFailure\)[\s\S]*?No se pudo cargar Room/);
   assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
@@ -147,32 +149,50 @@ test("NEXT and RESET advance evaluationId without physically resetting Judges", 
 test("SEND captures the active evaluationId for Points and Binary", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
-  assert.match(judgeSource, /const savePattern = async \(\) => \{\s*const evaluationId = meta\.evaluationId/);
+  assert.match(judgeSource, /const savePattern = async \(\) => \{[\s\S]*?const evaluationId = meta\.evaluationId/);
   assert.match(judgeSource, /const saveBinaryVote = async \(\) => \{[\s\S]*?const evaluationId = meta\.evaluationId/);
-  assert.match(judgeSource, /binary: \{\s*evaluationId,\s*vote: localBinaryVote/);
+  assert.match(judgeSource, /makePointsSubmission\(\{\s*evaluationId,\s*judgeId,\s*scores:/);
+  assert.match(judgeSource, /makeBinarySubmission\(\{\s*evaluationId,\s*judgeId,\s*vote/);
+  assert.match(source, /setDoc\(roomSubmissionRef\(roomId, id\), submission\)/);
+});
+
+test("Points SEND cannot persist an incomplete evaluation", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const saveStart = source.indexOf("const savePattern = async");
+  const saveEnd = source.indexOf("const saveBinaryVote", saveStart);
+  const saveSource = source.slice(saveStart, saveEnd);
+  const guardIndex = saveSource.indexOf("if (!patternComplete) return");
+  const writeIndex = saveSource.indexOf("writeSubmission");
+
+  assert.match(saveSource, /isPatternSideComplete\(localPattern\.hong\)[\s\S]*?isPatternSideComplete\(localPattern\.chong\)/);
+  assert.ok(guardIndex >= 0 && guardIndex < writeIndex);
 });
 
 test("Judge resets Points and Binary locally when evaluationId changes", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
-  assert.match(judgeSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId[\s\S]*?makeJudge\(judgeId, meta\.evaluationId\)\.pattern/);
-  assert.match(judgeSource, /const isCurrent = binary\.evaluationId === meta\.evaluationId/);
-  assert.match(judgeSource, /setLocalBinaryVote\(isCurrent \? binary\.vote : null\)/);
-  assert.match(judgeSource, /setLocalBinarySent\(isCurrent && !!binary\.sent\)/);
-  assert.match(judgeSource, /j\.pattern\.binary\.evaluationId === evaluationId/);
+  assert.match(judgeSource, /currentSubmission\(ownSubmission, \{\s*evaluationId: meta\.evaluationId,\s*scoringMode,\s*judgeId/);
+  assert.match(judgeSource, /makeJudge\(judgeId, meta\.evaluationId\)\.pattern/);
+  assert.match(judgeSource, /setLocalBinaryVote\(scoringMode === "binary" && validSubmission[\s\S]*?: null\)/);
+  assert.match(judgeSource, /setLocalBinarySent\(scoringMode === "binary" && validSubmission[\s\S]*?: false\)/);
+  assert.match(judgeSource, /latestEvaluationIdRef\.current === evaluationId/);
+  assert.match(judgeSource, /setLocalBinarySent\(true\)/);
 });
 
-test("Points SEND uses the existing sent state for integrated confirmation", () => {
+test("Points SEND distinguishes incomplete, ready and registered visual states", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./JudgePoints.css", import.meta.url), "utf8");
   const pointsStart = source.indexOf("function JudgePatternColorPanel");
   const pointsEnd = source.indexOf("function JudgePatternReadOnlyCard", pointsStart);
   const pointsSource = source.slice(pointsStart, pointsEnd);
 
   assert.match(pointsSource, /\{locked \? "SCORE SENT" : "SELECT SCORES"\}/);
   assert.match(pointsSource, /patterns-judge-points__joystick\$\{locked \? " is-sent" : ""\}/);
-  assert.match(pointsSource, /patterns-judge-points__send\$\{locked \? " is-confirmed" : ""\}/);
-  assert.match(pointsSource, /disabled=\{locked\}/);
-  assert.match(pointsSource, /\{locked \? "✓ SCORE REGISTERED" : "Guardar \/ Enviar"\}/);
+  assert.match(pointsSource, /patterns-judge-points__send\$\{locked \? " is-confirmed" : patternComplete \? " is-ready" : ""\}/);
+  assert.match(pointsSource, /disabled=\{locked \|\| !patternComplete\}/);
+  assert.match(pointsSource, /\{locked \? "✓ SCORE REGISTERED" : "SEND"\}/);
+  assert.match(css, /\.patterns-judge-points__send\.is-ready[\s\S]*?animation: patternsJudgePointsReadyButton 650ms ease-out/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.patterns-judge-points__send\.is-ready[\s\S]*?animation: none/);
   assert.doesNotMatch(pointsSource, /setTimeout|onSnapshot|writeJudge/);
 });
 
@@ -186,4 +206,43 @@ test("President and Public indicators reject submissions from old evaluations", 
   assert.match(presidentSource, /binaryVote\.evaluationId === meta\.evaluationId/);
   assert.match(presidentSource, /patternSummary\(meta, judges\)/);
   assert.match(presidentSource, /binarySummary\(meta, judges\)/);
+});
+
+test("roles use the minimum room data listeners", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const hookSource = source.slice(source.indexOf("function useFightData"), source.indexOf("function controlFromMeta"));
+  assert.match(hookSource, /role === "president"[\s\S]*?onSnapshot\(roomSubmissionsQuery\(roomId\)/);
+  assert.match(hookSource, /role === "public"[\s\S]*?onSnapshot\(roomJudgesQuery\(roomId\)/);
+  assert.match(hookSource, /role === "judge" && judgeId[\s\S]*?onSnapshot\(roomSubmissionRef\(roomId, judgeId\)/);
+  const judgeBranch = hookSource.slice(hookSource.indexOf('role === "judge"'), hookSource.indexOf("} else {", hookSource.indexOf('role === "judge"')));
+  assert.doesNotMatch(judgeBranch, /roomSubmissionsQuery|roomJudgesQuery/);
+  assert.match(hookSource, /const writeSubmission[\s\S]*?setDoc\(roomSubmissionRef\(roomId, id\), submission\)/);
+});
+
+test("Judge rehydrates only a current own submission and clears on generation changes", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const hookSource = source.slice(source.indexOf("function useFightData"), source.indexOf("function controlFromMeta"));
+  const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
+  assert.match(hookSource, /roomSubmissionRef\(roomId, judgeId\)/);
+  assert.match(hookSource, /submissionToJudge\(snap\.data\(\), judgeId\)/);
+  assert.match(judgeSource, /const validSubmission = currentSubmission\(ownSubmission/);
+  assert.match(judgeSource, /scoringMode === "points" && validSubmission/);
+  assert.match(judgeSource, /scoringMode === "binary" && validSubmission/);
+  assert.match(judgeSource, /makeJudge\(judgeId, meta\.evaluationId\)\.pattern/);
+});
+
+test("RESET restores Binary while advancing evaluationId", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const resetSource = source.slice(source.indexOf("const resetAll"), source.indexOf("return {", source.indexOf("const resetAll")));
+  assert.match(resetSource, /const evaluationId = current\.evaluationId \+ 1/);
+  assert.match(resetSource, /const resetState = \{ \.\.\.makeInitialMeta\(\), evaluationId \}/);
+  assert.doesNotMatch(resetSource, /scoringMode: getScoringMode\(current\)/);
+});
+
+test("NEXT and RESET never delete or clear submissions", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const resetSource = source.slice(source.indexOf("const resetAll"), source.indexOf("return {", source.indexOf("const resetAll")));
+  const nextSource = source.slice(source.indexOf("const prepareNextMatch"), source.indexOf("const applyPatternForcedWinner"));
+  assert.doesNotMatch(resetSource, /roomSubmissionRef|roomSubmissionsQuery|deleteDoc/);
+  assert.doesNotMatch(nextSource, /roomSubmissionRef|roomSubmissionsQuery|deleteDoc/);
 });
