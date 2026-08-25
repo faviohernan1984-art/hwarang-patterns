@@ -10,13 +10,14 @@ function validJudgeId(value) {
 }
 
 export function roomBasePath(roomId) {
-  return `/room/${encodeURIComponent(roomId)}`;
+  return `/rooms/${encodeURIComponent(roomId)}`;
 }
 
 export function parseAppRoute(pathname = "/") {
   const segments = String(pathname).split("/").filter(Boolean);
+  const roomPrefix = segments[0] === "rooms" || segments[0] === "room";
 
-  if (segments[0] === "room" && ROOM_ID_PATTERN.test(segments[1] || "")) {
+  if (roomPrefix && ROOM_ID_PATTERN.test(segments[1] || "")) {
     const roomId = segments[1];
     if (segments.length === 2) return { roomId, role: "home", judgeId: null };
     if (segments.length === 3 && (segments[2] === "president" || segments[2] === "public")) {
@@ -26,8 +27,12 @@ export function parseAppRoute(pathname = "/") {
       const judgeId = validJudgeId(segments[3]);
       if (judgeId) return { roomId, role: "judge", judgeId };
     }
-    return { roomId, role: "home", judgeId: null };
+    return { roomId, role: "invalid", judgeId: null };
   }
+
+  if (roomPrefix) return { roomId: null, role: "invalid", judgeId: null };
+
+  if (segments.length === 0) return { roomId: DEFAULT_ROOM_ID, role: "home", judgeId: null };
 
   if (segments.length === 1 && (segments[0] === "president" || segments[0] === "public")) {
     return { roomId: DEFAULT_ROOM_ID, role: segments[0], judgeId: null };
@@ -37,5 +42,5 @@ export function parseAppRoute(pathname = "/") {
     if (judgeId) return { roomId: DEFAULT_ROOM_ID, role: "judge", judgeId };
   }
 
-  return { roomId: DEFAULT_ROOM_ID, role: "home", judgeId: null };
+  return { roomId: null, role: "invalid", judgeId: null };
 }

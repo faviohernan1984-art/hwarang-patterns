@@ -355,6 +355,7 @@ function useFightData(roomId, role, judgeId) {
   const [loadFailure, setLoadFailure] = useState(null);
 
   useEffect(() => {
+    if (!roomId || role === "invalid") return undefined;
     const matchMetaRef = roomMetaRef(roomId);
     const controlRef = roomControlRef(roomId);
     const reportLoadFailure = (source, error) => {
@@ -2172,6 +2173,10 @@ export default function App() {
       });
     }
   }, [meta, writeMeta]);
+
+  if (role === "invalid") {
+    return <><GlobalAppStyle /><div style={styles.page}>Ruta de Room inválida.</div></>;
+  }
 
   if (loadFailure) {
     return <><GlobalAppStyle /><div style={styles.page}>No se pudo cargar Room {roomId}: {loadFailure.message}</div></>;
