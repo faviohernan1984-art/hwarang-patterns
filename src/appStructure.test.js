@@ -53,15 +53,17 @@ test("CLOSE is guarded in both the button and handler", () => {
 
 test("forced decisions stay available in every scoring mode and latest intent wins", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const forcedDecisionSource = readFileSync(new URL("./forcedDecision.js", import.meta.url), "utf8");
   const forceStart = source.indexOf("const applyPatternForcedWinner");
   const forceEnd = source.indexOf("const updateCompetitor", forceStart);
   const forceSource = source.slice(forceStart, forceEnd);
   assert.match(forceSource, /\["hong", "chong", "draw"\]\.includes\(winner\)/);
   assert.doesNotMatch(forceSource, /winner === "draw"[^\n]*getScoringMode/);
   assert.match(forceSource, /forceWriteQueueRef\.current = forceWriteQueueRef\.current/);
-  assert.match(forceSource, /forcedDecisionToken: token/);
-  assert.match(forceSource, /scoringMode: getScoringMode\(current\)/);
-  assert.match(forceSource, /completed: true,\s*winner,/);
+  assert.match(forceSource, /const evaluationId = meta\.evaluationId/);
+  assert.match(forceSource, /writeGenerationalMeta[\s\S]*?evaluationId/);
+  assert.match(forcedDecisionSource, /forcedDecisionToken: token/);
+  assert.match(forcedDecisionSource, /completed: true,\s*winner,/);
   assert.match(source, /<AppButton style=\{styles\.gray\} onClick=\{\(\) => applyPatternForcedWinner\("draw"\)\}>DRAW<\/AppButton>/);
 });
 
@@ -119,8 +121,8 @@ test("START PAUSE NEXT RESET FORCE and CLOSE keep active state through CONTROL",
   assert.match(presidentSource, /const pauseTimer[\s\S]*?current\.status = "paused"[\s\S]*?current\.phaseStartedAt = null/);
   assert.match(presidentSource, /const prepareNextMatch[\s\S]*?current\.evaluationId \+= 1/);
   assert.match(presidentSource, /const closePatternEvaluation[\s\S]*?current\.patternResult =/);
-  assert.match(presidentSource, /const applyPatternForcedWinner[\s\S]*?current\.patternResult =/);
-  assert.match(source, /const resetAll[\s\S]*?setDoc\(controlRef, controlFromMeta\(resetState\)\)/);
+  assert.match(presidentSource, /const applyPatternForcedWinner[\s\S]*?applyForcedDecisionState/);
+  assert.match(source, /const resetAll[\s\S]*?writeGenerationalMeta/);
 });
 
 test("timer derivation and 3/5 scoring configuration remain local and shared", () => {
@@ -142,7 +144,7 @@ test("NEXT and RESET advance evaluationId without physically resetting Judges", 
 
   assert.match(nextSource, /current\.evaluationId \+= 1/);
   assert.doesNotMatch(nextSource, /writeJudge|roomJudgeRef|makeJudge/);
-  assert.match(resetSource, /const evaluationId = current\.evaluationId \+ 1/);
+  assert.match(resetSource, /evaluationId: current\.evaluationId \+ 1/);
   assert.doesNotMatch(resetSource, /roomJudgeRef|makeJudge\(i|for \(let i/);
 });
 
@@ -274,9 +276,27 @@ test("Judge rehydrates only a current own submission and clears on generation ch
 test("RESET restores Binary while advancing evaluationId", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const resetSource = source.slice(source.indexOf("const resetAll"), source.indexOf("return {", source.indexOf("const resetAll")));
-  assert.match(resetSource, /const evaluationId = current\.evaluationId \+ 1/);
-  assert.match(resetSource, /const resetState = \{ \.\.\.makeInitialMeta\(\), evaluationId \}/);
+  assert.match(resetSource, /\.\.\.makeInitialMeta\(\),\s*evaluationId: current\.evaluationId \+ 1/);
   assert.doesNotMatch(resetSource, /scoringMode: getScoringMode\(current\)/);
+});
+
+test("Forced Decision and generation advances share an atomic transaction guard", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const transactionStart = source.indexOf("const writeGenerationalMeta");
+  const transactionEnd = source.indexOf("const writeSubmission", transactionStart);
+  const transactionSource = source.slice(transactionStart, transactionEnd);
+  const forceStart = source.indexOf("const applyPatternForcedWinner");
+  const forceEnd = source.indexOf("const resetEvaluation", forceStart);
+  const forceSource = source.slice(forceStart, forceEnd);
+
+  assert.match(transactionSource, /runTransaction\(db/);
+  assert.match(transactionSource, /transaction\.get\(controlRef\)/);
+  assert.match(transactionSource, /transaction\.get\(matchMetaRef\)/);
+  assert.match(transactionSource, /current\.evaluationId !== expectedEvaluationId/);
+  assert.match(transactionSource, /transaction\.set\(controlRef, nextControl\)/);
+  assert.match(transactionSource, /transaction\.set\(matchMetaRef, nextLegacyMeta\)/);
+  assert.match(forceSource, /const evaluationId = meta\.evaluationId/);
+  assert.match(forceSource, /if \(!applied\)/);
 });
 
 test("NEXT and RESET never delete or clear submissions", () => {

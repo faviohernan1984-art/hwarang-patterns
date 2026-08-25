@@ -9,6 +9,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import {
+  db,
   roomMetaRef,
   roomControlRef,
   roomPublicStateRef,
@@ -22,6 +23,7 @@ import { patternSummary, patternTotalsForJudge, currentPatternTotalsForJudge, cu
 import { makePointsSubmission, makeBinarySubmission, currentSubmission, submissionToJudge } from "./submissionPayloads";
 import { currentPublicState, derivePublicState, serializePublicState } from "./publicState";
 import { parseAppRoute, roomBasePath } from "./roomRoutes";
+import { applyForcedDecisionState } from "./forcedDecision";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import "./HomeScreen.css";
@@ -445,6 +447,33 @@ function useFightData(roomId, role, judgeId) {
     await Promise.all(writes);
   };
 
+  const writeGenerationalMeta = async (mutator, expectedEvaluationId = null) => {
+    const matchMetaRef = roomMetaRef(roomId);
+    const controlRef = roomControlRef(roomId);
+    return runTransaction(db, async (transaction) => {
+      const [controlSnap, metaSnap] = await Promise.all([
+        transaction.get(controlRef),
+        transaction.get(matchMetaRef),
+      ]);
+      const current = mergeRoomState(
+        controlSnap.exists() ? controlSnap.data() : makeInitialMeta(),
+        metaSnap.exists() ? metaSnap.data() : legacyMetaFromMeta(makeInitialMeta())
+      );
+      if (expectedEvaluationId !== null && current.evaluationId !== expectedEvaluationId) return false;
+
+      const draft = clone(current);
+      const result = typeof mutator === "function" ? mutator(draft) : mutator;
+      const next = ensureMetaShape(result ?? draft);
+      const currentControl = controlFromMeta(current);
+      const nextControl = controlFromMeta(next);
+      const currentLegacyMeta = legacyMetaFromMeta(current);
+      const nextLegacyMeta = legacyMetaFromMeta(next);
+      if (JSON.stringify(nextControl) !== JSON.stringify(currentControl)) transaction.set(controlRef, nextControl);
+      if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) transaction.set(matchMetaRef, nextLegacyMeta);
+      return true;
+    });
+  };
+
   const writeSubmission = async (id, submission) => {
     await setDoc(roomSubmissionRef(roomId, id), submission);
     return submission;
@@ -459,16 +488,10 @@ function useFightData(roomId, role, judgeId) {
   };
 
   const resetAll = async () => {
-    const matchMetaRef = roomMetaRef(roomId);
-    const controlRef = roomControlRef(roomId);
-    const controlSnap = await getDoc(controlRef);
-    const current = ensureMetaShape(controlSnap.exists() ? controlSnap.data() : makeInitialMeta());
-    const evaluationId = current.evaluationId + 1;
-    const resetState = { ...makeInitialMeta(), evaluationId };
-    await Promise.all([
-      setDoc(controlRef, controlFromMeta(resetState)),
-      setDoc(matchMetaRef, legacyMetaFromMeta(resetState)),
-    ]);
+    await writeGenerationalMeta((current) => ({
+      ...makeInitialMeta(),
+      evaluationId: current.evaluationId + 1,
+    }));
   };
 
   const acceptedPublicState = control ? currentPublicState(control, publicState) : null;
@@ -492,6 +515,7 @@ function useFightData(roomId, role, judgeId) {
     ownSubmission,
     publicState: acceptedPublicState,
     writeMeta,
+    writeGenerationalMeta,
     writeSubmission,
     publishLegacyJudge,
     writePublicState,
@@ -1332,7 +1356,7 @@ function PublicScreen({ meta, publicState, navigate, roomId }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, writePublicState, resetAll, navigate, roomId }) {
+function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publishLegacyJudge, writePublicState, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1686,7 +1710,7 @@ function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, writePub
 
   const prepareNextMatch = async () => {
     setLocalConfigurationLock(false);
-    await writeMeta((current) => {
+    await writeGenerationalMeta((current) => {
       const roundSeconds = current.config.roundSeconds || 120;
       current.mode = "pattern";
       current.status = "paused";
@@ -1707,7 +1731,8 @@ function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, writePub
     const sequence = forceSequenceRef.current + 1;
     forceSequenceRef.current = sequence;
     const token = `${Date.now()}-${sequence}`;
-    latestForceRef.current = { winner, token };
+    const evaluationId = meta.evaluationId;
+    latestForceRef.current = { winner, token, evaluationId };
     setLocalConfigurationLock(true);
     setForcedWinnerIntent(winner);
     setSettledForceToken(null);
@@ -1716,20 +1741,18 @@ function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, writePub
     forceWriteQueueRef.current = forceWriteQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        await writeMeta((current) => {
-          current.patternResult = {
-            ...current.patternResult,
-            scoringMode: getScoringMode(current),
-            completed: true,
-            winner,
-            forcedDecisionToken: token,
-          };
-          current.phase = "finished";
-          current.status = "paused";
-          current.pausedRemaining = 0;
-          current.phaseStartedAt = null;
-          return current;
-        });
+        const applied = await writeGenerationalMeta(
+          (current) => applyForcedDecisionState(current, { evaluationId, winner, token }),
+          evaluationId
+        );
+        if (!applied) {
+          if (latestForceRef.current?.token === token) {
+            latestForceRef.current = null;
+            setForcedWinnerIntent(null);
+            setSettledForceToken(null);
+          }
+          return;
+        }
         if (latestForceRef.current?.token === token) setSettledForceToken(token);
       })
       .catch((error) => {
@@ -2156,7 +2179,7 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
 export default function App() {
   const { path, navigate } = useRoute();
   const { roomId, role, judgeId } = parseAppRoute(path);
-  const { meta, judges, ownSubmission, publicState, writeMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
+  const { meta, judges, ownSubmission, publicState, writeMeta, writeGenerationalMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
 
   useEffect(() => {
     if (!meta) return;
@@ -2192,6 +2215,7 @@ export default function App() {
         meta={meta}
         judges={judges}
         writeMeta={writeMeta}
+        writeGenerationalMeta={writeGenerationalMeta}
         publishLegacyJudge={publishLegacyJudge}
         writePublicState={writePublicState}
         resetAll={resetAll}
