@@ -83,6 +83,61 @@ service cloud.firestore {
           || (judgeId == "5" && request.resource.data.judgeId == 5));
     }
 
+    function patternsControl(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/control/current).data;
+    }
+
+    function validPatternsCompetitor(competitor) {
+      return competitor.keys().hasOnly(["label", "name", "club"])
+        && competitor.label is string
+        && competitor.name is string
+        && competitor.club is string;
+    }
+
+    function validPatternsControl() {
+      return request.resource.data.keys().hasOnly([
+          "evaluationId", "status", "phase", "phaseStartedAt", "pausedRemaining",
+          "config", "hong", "chong", "publicSwapSides"
+        ])
+        && request.resource.data.evaluationId is int
+        && request.resource.data.evaluationId >= 1
+        && request.resource.data.status in ["paused", "running"]
+        && request.resource.data.phase in ["fight", "finished"]
+        && (request.resource.data.phaseStartedAt == null
+          || request.resource.data.phaseStartedAt is int)
+        && request.resource.data.pausedRemaining is number
+        && request.resource.data.pausedRemaining >= 0
+        && request.resource.data.config.keys().hasOnly([
+          "roundSeconds", "patternJudges", "scoringMode"
+        ])
+        && request.resource.data.config.roundSeconds is number
+        && request.resource.data.config.roundSeconds > 0
+        && request.resource.data.config.patternJudges in [3, 5]
+        && request.resource.data.config.scoringMode in ["binary", "points"]
+        && validPatternsCompetitor(request.resource.data.hong)
+        && validPatternsCompetitor(request.resource.data.chong)
+        && request.resource.data.publicSwapSides is bool;
+    }
+
+    function validPatternsControlUpdate() {
+      return validPatternsControl()
+        && (request.resource.data.evaluationId == resource.data.evaluationId
+          || request.resource.data.evaluationId == resource.data.evaluationId + 1);
+    }
+
+    function activePatternsJudge(judgeCount, judgeId) {
+      return judgeCount == 5
+        || judgeId in ["1", "2", "3"];
+    }
+
+    function validPatternSide(side) {
+      return side.keys().hasOnly(["tech", "power", "rhythm", "zero"])
+        && side.tech is int && side.tech >= 0 && side.tech <= 5
+        && side.power is int && side.power >= 0 && side.power <= 3
+        && side.rhythm is int && side.rhythm >= 0 && side.rhythm <= 3
+        && side.zero is bool;
+    }
+
     function validPatternsSubmission() {
       return request.resource.data.evaluationId is int
         && request.resource.data.evaluationId >= 1
@@ -92,12 +147,73 @@ service cloud.firestore {
             && request.resource.data.keys().hasOnly([
               "evaluationId", "judgeId", "mode", "scores", "sent", "submittedAt"
             ])
-            && request.resource.data.scores.keys().hasOnly(["hong", "chong"]))
+            && request.resource.data.scores.keys().hasOnly(["hong", "chong"])
+            && validPatternSide(request.resource.data.scores.hong)
+            && validPatternSide(request.resource.data.scores.chong))
           || (request.resource.data.mode == "binary"
             && request.resource.data.keys().hasOnly([
               "evaluationId", "judgeId", "mode", "vote", "sent", "submittedAt"
             ])
             && request.resource.data.vote in ["hong", "chong"]));
+    }
+
+    function validCurrentPatternsSubmission(roomId, judgeId) {
+      let control = patternsControl(roomId);
+      return request.resource.data.evaluationId == control.evaluationId
+        && request.resource.data.mode == control.config.scoringMode
+        && activePatternsJudge(control.config.patternJudges, judgeId);
+    }
+
+    function validPublicJudge(judge, id) {
+      return judge.keys().hasOnly(["id", "sent", "decision"])
+        && judge.id == id
+        && judge.sent is bool
+        && (judge.decision == null
+          || judge.decision in ["hong", "chong", "draw"]);
+    }
+
+    function validPublicJudges(judges, judgeCount) {
+      return judges is list
+        && judges.size() == judgeCount
+        && validPublicJudge(judges[0], 1)
+        && validPublicJudge(judges[1], 2)
+        && validPublicJudge(judges[2], 3)
+        && (judgeCount == 3
+          || (validPublicJudge(judges[3], 4)
+            && validPublicJudge(judges[4], 5)));
+    }
+
+    function validPatternsPublicState(roomId) {
+      let control = patternsControl(roomId);
+      return request.resource.data.keys().hasOnly([
+          "evaluationId", "scoringMode", "judges", "aggregate", "result"
+        ])
+        && request.resource.data.evaluationId == control.evaluationId
+        && request.resource.data.scoringMode == control.config.scoringMode
+        && validPublicJudges(request.resource.data.judges, control.config.patternJudges)
+        && request.resource.data.aggregate.keys().hasOnly(["hong", "chong"])
+        && request.resource.data.aggregate.hong is number
+        && request.resource.data.aggregate.hong >= 0
+        && request.resource.data.aggregate.chong is number
+        && request.resource.data.aggregate.chong >= 0
+        && request.resource.data.result.keys().hasOnly(["completed", "winner"])
+        && request.resource.data.result.completed is bool
+        && request.resource.data.result.winner in ["en_curso", "hong", "chong", "draw"];
+    }
+
+    function validLegacyPatternsJudge(roomId, judgeId) {
+      let control = patternsControl(roomId);
+      let pattern = request.resource.data.pattern;
+      return ((judgeId == "1" && request.resource.data.id == 1)
+          || (judgeId == "2" && request.resource.data.id == 2)
+          || (judgeId == "3" && request.resource.data.id == 3)
+          || (judgeId == "4" && request.resource.data.id == 4)
+          || (judgeId == "5" && request.resource.data.id == 5))
+        && pattern.evaluationId == control.evaluationId
+        && ((control.config.scoringMode == "points" && pattern.sent == true)
+          || (control.config.scoringMode == "binary"
+            && pattern.binary.evaluationId == control.evaluationId
+            && pattern.binary.sent == true));
     }
 
     match /matches/{matchId} {
@@ -132,7 +248,11 @@ service cloud.firestore {
 
     match /rooms/{roomId} {
       match /control/current {
-        allow read, create, update: if validPatternsRoomId(roomId);
+        allow read: if validPatternsRoomId(roomId);
+        allow create: if validPatternsRoomId(roomId)
+          && validPatternsControl();
+        allow update: if validPatternsRoomId(roomId)
+          && validPatternsControlUpdate();
         allow delete: if false;
       }
 
@@ -141,7 +261,8 @@ service cloud.firestore {
           && judgeId in ["1", "2", "3", "4", "5"];
         allow create, update: if validPatternsRoomId(roomId)
           && validPatternsSubmissionJudge(judgeId)
-          && validPatternsSubmission();
+          && validPatternsSubmission()
+          && validCurrentPatternsSubmission(roomId, judgeId);
         allow delete: if false;
       }
 
@@ -152,14 +273,18 @@ service cloud.firestore {
 
       match /publicState/current {
         allow read: if validPatternsRoomId(roomId);
-        // 2.6 debt: restrict writes by role once Rooms has verifiable President/Public identity.
-        allow create, update: if validPatternsRoomId(roomId);
+        // Role ownership still requires verifiable Rooms identities; shape and generation are enforced here.
+        allow create, update: if validPatternsRoomId(roomId)
+          && validPatternsPublicState(roomId);
         allow delete: if false;
       }
 
       match /judges/{judgeId} {
-        allow read, create, update: if validPatternsRoomId(roomId)
+        allow read: if validPatternsRoomId(roomId)
           && judgeId in ["1", "2", "3", "4", "5"];
+        allow create, update: if validPatternsRoomId(roomId)
+          && judgeId in ["1", "2", "3", "4", "5"]
+          && validLegacyPatternsJudge(roomId, judgeId);
         allow delete: if false;
       }
     }

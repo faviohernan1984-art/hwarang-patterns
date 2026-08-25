@@ -4,17 +4,22 @@ import { readFileSync } from "node:fs";
 
 const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
 
-test("Rooms rules are limited to valid room control, meta and judge documents", () => {
+test("Rooms rules enforce current CONTROL generation, mode and payload shapes", () => {
   assert.match(rules, /roomId\.matches\('\^\[A-Za-z0-9_-\]\{1,64\}\$'\)/);
   assert.match(rules, /match \/rooms\/\{roomId\}/);
   assert.match(rules, /match \/meta\/current/);
   assert.match(rules, /match \/control\/current/);
   assert.match(rules, /match \/publicState\/current/);
-  assert.match(rules, /match \/publicState\/current \{\s*allow read: if validPatternsRoomId\(roomId\);[\s\S]*?allow create, update: if validPatternsRoomId\(roomId\);\s*allow delete: if false;/);
+  assert.match(rules, /function patternsControl\(roomId\)/);
+  assert.match(rules, /request\.resource\.data\.evaluationId == control\.evaluationId/);
+  assert.match(rules, /request\.resource\.data\.mode == control\.config\.scoringMode/);
+  assert.match(rules, /validPatternsPublicState\(roomId\)/);
+  assert.match(rules, /validPatternsControlUpdate\(\)/);
   assert.match(rules, /match \/submissions\/\{judgeId\}/);
   assert.match(rules, /validPatternsSubmissionJudge\(judgeId\)/);
   assert.match(rules, /request\.resource\.data\.judgeId == 5/);
   assert.match(rules, /hasOnly\(\[\s*"evaluationId", "judgeId", "mode", "scores", "sent", "submittedAt"/);
+  assert.match(rules, /side\.keys\(\)\.hasOnly\(\["tech", "power", "rhythm", "zero"\]\)/);
   assert.match(rules, /judgeId in \["1", "2", "3", "4", "5"\]/);
   assert.match(rules, /allow delete: if false;/);
   assert.doesNotMatch(rules, /match \/rooms\/\{document=\*\*\}/);
