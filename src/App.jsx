@@ -1991,7 +1991,7 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
   const [localPattern, setLocalPattern] = useState(() => clone(initialJudge.pattern));
   const [localBinaryVote, setLocalBinaryVote] = useState(() => initialJudge.pattern.binary.vote);
   const [localBinarySent, setLocalBinarySent] = useState(() => !!initialJudge.pattern.binary.sent);
-  const judgeSyncDiagnosticSequenceRef = useRef(0);
+  const submittedEvaluationRef = useRef(null);
 
   useEffect(() => {
     const validSubmission = currentSubmission(ownSubmission, {
@@ -2002,31 +2002,6 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
     const hydratedJudge = validSubmission
       ? submissionToJudge(validSubmission, judgeId)
       : makeJudge(judgeId, meta.evaluationId);
-    const diagnosticSequence = judgeSyncDiagnosticSequenceRef.current + 1;
-    judgeSyncDiagnosticSequenceRef.current = diagnosticSequence;
-
-    console.log("[Judge 2.4 diagnostic] SYNC", {
-      sequence: diagnosticSequence,
-      branch: validSubmission ? "REHYDRATE" : "CLEAR",
-      control: {
-        evaluationId: meta.evaluationId,
-        scoringMode,
-      },
-      ownSubmission: ownSubmission
-        ? {
-            evaluationId: ownSubmission.evaluationId,
-            mode: ownSubmission.mode,
-            judgeId: ownSubmission.judgeId,
-            sent: ownSubmission.sent,
-          }
-        : null,
-      isCurrentSubmission: !!validSubmission,
-      localBefore: {
-        pattern: clone(localPattern),
-        binaryVote: localBinaryVote,
-        binarySent: localBinarySent,
-      },
-    });
 
     setLocalPattern(clone(
       scoringMode === "points" && validSubmission
@@ -2035,46 +2010,7 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
     ));
     setLocalBinaryVote(scoringMode === "binary" && validSubmission ? hydratedJudge.pattern.binary.vote : null);
     setLocalBinarySent(scoringMode === "binary" && validSubmission ? !!hydratedJudge.pattern.binary.sent : false);
-  }, [judgeId, meta.evaluationId, scoringMode, JSON.stringify(ownSubmission)]);
-
-  useEffect(() => {
-    const validSubmission = currentSubmission(ownSubmission, {
-      evaluationId: meta.evaluationId,
-      scoringMode,
-      judgeId,
-    });
-
-    console.log("[Judge 2.4 diagnostic] STATE", {
-      sequence: judgeSyncDiagnosticSequenceRef.current,
-      control: {
-        evaluationId: meta.evaluationId,
-        scoringMode,
-      },
-      ownSubmission: ownSubmission
-        ? {
-            evaluationId: ownSubmission.evaluationId,
-            mode: ownSubmission.mode,
-            judgeId: ownSubmission.judgeId,
-            sent: ownSubmission.sent,
-          }
-        : null,
-      isCurrentSubmission: !!validSubmission,
-      renderedFrom: scoringMode === "points" ? "localPattern" : "localBinaryVote/localBinarySent",
-      localAfter: {
-        pattern: clone(localPattern),
-        binaryVote: localBinaryVote,
-        binarySent: localBinarySent,
-      },
-    });
-  }, [
-    judgeId,
-    meta.evaluationId,
-    scoringMode,
-    JSON.stringify(ownSubmission),
-    JSON.stringify(localPattern),
-    localBinaryVote,
-    localBinarySent,
-  ]);
+  }, [judgeId, meta.evaluationId, scoringMode, ownSubmission]);
 
   const selectPatternValue = (side, field, value) => {
     setLocalPattern((prev) => ({
@@ -2108,15 +2044,24 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
     const patternComplete = isPatternSideComplete(localPattern.hong)
       && isPatternSideComplete(localPattern.chong);
     if (!patternComplete) return;
+    if (localPattern.sent) return;
     const evaluationId = meta.evaluationId;
-    await writeSubmission(judgeId, makePointsSubmission({
-      evaluationId,
-      judgeId,
-      scores: {
-        hong: { ...localPattern.hong },
-        chong: { ...localPattern.chong },
-      },
-    }));
+    const submissionKey = `${evaluationId}:points`;
+    if (submittedEvaluationRef.current === submissionKey) return;
+    submittedEvaluationRef.current = submissionKey;
+    try {
+      await writeSubmission(judgeId, makePointsSubmission({
+        evaluationId,
+        judgeId,
+        scores: {
+          hong: { ...localPattern.hong },
+          chong: { ...localPattern.chong },
+        },
+      }));
+    } catch (error) {
+      if (submittedEvaluationRef.current === submissionKey) submittedEvaluationRef.current = null;
+      throw error;
+    }
 
     if (latestEvaluationIdRef.current === evaluationId) {
       setLocalPattern((current) => ({ ...current, evaluationId, sent: true }));
@@ -2127,11 +2072,19 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
     if (!localBinaryVote || localBinarySent) return;
     const evaluationId = meta.evaluationId;
     const vote = localBinaryVote;
-    await writeSubmission(judgeId, makeBinarySubmission({
-      evaluationId,
-      judgeId,
-      vote,
-    }));
+    const submissionKey = `${evaluationId}:binary`;
+    if (submittedEvaluationRef.current === submissionKey) return;
+    submittedEvaluationRef.current = submissionKey;
+    try {
+      await writeSubmission(judgeId, makeBinarySubmission({
+        evaluationId,
+        judgeId,
+        vote,
+      }));
+    } catch (error) {
+      if (submittedEvaluationRef.current === submissionKey) submittedEvaluationRef.current = null;
+      throw error;
+    }
     if (latestEvaluationIdRef.current === evaluationId) {
       setLocalBinaryVote(vote);
       setLocalBinarySent(true);

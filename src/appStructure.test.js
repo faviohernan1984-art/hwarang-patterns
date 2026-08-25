@@ -156,6 +156,21 @@ test("SEND captures the active evaluationId for Points and Binary", () => {
   assert.match(source, /setDoc\(roomSubmissionRef\(roomId, id\), submission\)/);
 });
 
+test("Judge SEND ignores repeated attempts for the same evaluation and mode", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const judgeSource = source.slice(source.indexOf("function JudgeScreen"));
+
+  assert.match(judgeSource, /const submittedEvaluationRef = useRef\(null\)/);
+  assert.match(judgeSource, /const submissionKey = `\$\{evaluationId\}:points`[\s\S]*?submittedEvaluationRef\.current === submissionKey/);
+  assert.match(judgeSource, /const submissionKey = `\$\{evaluationId\}:binary`[\s\S]*?submittedEvaluationRef\.current === submissionKey/);
+  assert.match(judgeSource, /catch \(error\) \{[\s\S]*?submittedEvaluationRef\.current = null/);
+});
+
+test("temporary Judge 2.4 diagnostics are removed", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\[Judge 2\.4 diagnostic\]/);
+});
+
 test("Points SEND cannot persist an incomplete evaluation", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const saveStart = source.indexOf("const savePattern = async");
