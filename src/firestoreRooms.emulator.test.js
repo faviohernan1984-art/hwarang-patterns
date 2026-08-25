@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { connectFirestoreEmulator, getDoc, getDocs, setDoc, terminate } from "firebase/firestore";
-import { db, roomControlRef, roomJudgeRef, roomJudgesQuery, roomMetaRef, roomSubmissionRef } from "./firebase.js";
+import { db, roomControlRef, roomJudgeRef, roomJudgesQuery, roomMetaRef, roomPublicStateRef, roomSubmissionRef } from "./firebase.js";
 
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 
@@ -13,8 +13,16 @@ test("Rooms rules allow the baseline paths and reject Judge 6", { skip: !emulato
     await setDoc(roomMetaRef("A"), { status: "paused" });
     await setDoc(roomControlRef("A"), { evaluationId: 1, status: "paused" });
     await setDoc(roomControlRef("B"), { evaluationId: 7, status: "running" });
+    await setDoc(roomPublicStateRef("A"), {
+      evaluationId: 1,
+      scoringMode: "binary",
+      judges: [],
+      aggregate: { hong: 0, chong: 0 },
+      result: { completed: false, winner: "en_curso" },
+    });
     assert.deepEqual((await getDoc(roomControlRef("A"))).data(), { evaluationId: 1, status: "paused" });
     assert.deepEqual((await getDoc(roomControlRef("B"))).data(), { evaluationId: 7, status: "running" });
+    assert.equal((await getDoc(roomPublicStateRef("A"))).data().evaluationId, 1);
     await setDoc(roomJudgeRef("A", 1), { id: 1 });
     await setDoc(roomSubmissionRef("A", 1), {
       evaluationId: 1, judgeId: 1, mode: "binary", vote: "hong", sent: true, submittedAt: Date.now(),

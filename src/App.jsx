@@ -11,7 +11,7 @@ import {
 import {
   roomMetaRef,
   roomControlRef,
-  roomJudgesQuery,
+  roomPublicStateRef,
   roomJudgeRef,
   roomSubmissionsQuery,
   roomSubmissionRef,
@@ -20,6 +20,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { patternSummary, patternTotalsForJudge, currentPatternTotalsForJudge, currentPatternHasZero, isPatternSideComplete } from "./patternSummary";
 import { makePointsSubmission, makeBinarySubmission, currentSubmission, submissionToJudge } from "./submissionPayloads";
+import { currentPublicState, derivePublicState, serializePublicState } from "./publicState";
 import { parseAppRoute, roomBasePath } from "./roomRoutes";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
@@ -201,36 +202,6 @@ function makeJudge(id, evaluationId = 1) {
   };
 }
 
-function normalizeJudge(raw, id) {
-  const base = makeJudge(id);
-  if (!raw) return base;
-
-  return {
-    ...base,
-    ...raw,
-    pattern: {
-      ...base.pattern,
-      ...(raw.pattern || {}),
-      hong: {
-        ...base.pattern.hong,
-        ...(raw.pattern?.hong || {}),
-      },
-      chong: {
-        ...base.pattern.chong,
-        ...(raw.pattern?.chong || {}),
-      },
-      binary: {
-        ...base.pattern.binary,
-        ...(raw.pattern?.binary || {}),
-        vote: raw.pattern?.binary?.vote === "hong" || raw.pattern?.binary?.vote === "chong"
-          ? raw.pattern.binary.vote
-          : null,
-        sent: !!raw.pattern?.binary?.sent,
-      },
-    },
-  };
-}
-
 function makeEmptyPatternResult() {
   return {
     hong: 0,
@@ -375,6 +346,7 @@ function useFightData(roomId, role, judgeId) {
   const roleDataKey = `${roomId}:${role}:${judgeId || "none"}`;
   const [control, setControl] = useState(null);
   const [legacyMeta, setLegacyMeta] = useState(null);
+  const [publicState, setPublicState] = useState(null);
   const [judges, setJudges] = useState(Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1)));
   const [ownSubmission, setOwnSubmission] = useState(null);
   const [loadedControlRoomId, setLoadedControlRoomId] = useState(null);
@@ -392,7 +364,7 @@ function useFightData(roomId, role, judgeId) {
     const markRoomConnection = () => {
       setLoadFailure((current) => current?.roomId === roomId ? null : current);
     };
-    ensureInitialDocs(roomId).catch((error) => reportLoadFailure("initial documents", error));
+    if (role !== "public") ensureInitialDocs(roomId).catch((error) => reportLoadFailure("initial documents", error));
 
     const unsubControl = onSnapshot(controlRef, (snap) => {
       markRoomConnection();
@@ -401,12 +373,15 @@ function useFightData(roomId, role, judgeId) {
       setLoadedControlRoomId(roomId);
     }, (error) => reportLoadFailure("control snapshot", error));
 
-    const unsubMeta = onSnapshot(matchMetaRef, (snap) => {
-      markRoomConnection();
-      if (!snap.exists()) return;
-      setLegacyMeta(legacyMetaFromMeta(snap.data()));
-      setLoadedMetaRoomId(roomId);
-    }, (error) => reportLoadFailure("meta snapshot", error));
+    let unsubMeta = () => {};
+    if (role !== "public") {
+      unsubMeta = onSnapshot(matchMetaRef, (snap) => {
+        markRoomConnection();
+        if (!snap.exists()) return;
+        setLegacyMeta(legacyMetaFromMeta(snap.data()));
+        setLoadedMetaRoomId(roomId);
+      }, (error) => reportLoadFailure("meta snapshot", error));
+    }
 
     let unsubRoleData = () => {};
     if (role === "president") {
@@ -421,16 +396,11 @@ function useFightData(roomId, role, judgeId) {
         setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId || "none"}`);
       }, (error) => reportLoadFailure("submissions snapshot", error));
     } else if (role === "public") {
-      unsubRoleData = onSnapshot(roomJudgesQuery(roomId), (snap) => {
+      unsubRoleData = onSnapshot(roomPublicStateRef(roomId), (snap) => {
         markRoomConnection();
-        const next = Array.from({ length: MAX_JUDGES }, (_, i) => makeJudge(i + 1));
-        snap.docs.forEach((judgeDocument) => {
-          const idx = Number(judgeDocument.id) - 1;
-          if (idx >= 0 && idx < MAX_JUDGES) next[idx] = normalizeJudge(judgeDocument.data(), idx + 1);
-        });
-        setJudges(next);
+        setPublicState(snap.exists() ? snap.data() : null);
         setLoadedRoleDataRoomId(`${roomId}:${role}:${judgeId || "none"}`);
-      }, (error) => reportLoadFailure("judges snapshot", error));
+      }, (error) => reportLoadFailure("public state snapshot", error));
     } else if (role === "judge" && judgeId) {
       unsubRoleData = onSnapshot(roomSubmissionRef(roomId, judgeId), (snap) => {
         markRoomConnection();
@@ -483,6 +453,10 @@ function useFightData(roomId, role, judgeId) {
     await setDoc(roomJudgeRef(roomId, id), judge);
   };
 
+  const writePublicState = async (nextPublicState) => {
+    await setDoc(roomPublicStateRef(roomId), nextPublicState);
+  };
+
   const resetAll = async () => {
     const matchMetaRef = roomMetaRef(roomId);
     const controlRef = roomControlRef(roomId);
@@ -496,15 +470,30 @@ function useFightData(roomId, role, judgeId) {
     ]);
   };
 
+  const acceptedPublicState = control ? currentPublicState(control, publicState) : null;
+  const metaReady = role === "public" || loadedMetaRoomId === roomId;
+  const meta = loadedControlRoomId === roomId && metaReady && loadedRoleDataRoomId === roleDataKey
+    ? role === "public"
+      ? ensureMetaShape({
+          ...control,
+          patternResult: {
+            ...acceptedPublicState.aggregate,
+            sent: acceptedPublicState.judges.filter((judge) => judge.sent).length,
+            ...acceptedPublicState.result,
+          },
+        })
+      : mergeRoomState(control, legacyMeta)
+    : null;
+
   return {
-    meta: loadedControlRoomId === roomId && loadedMetaRoomId === roomId && loadedRoleDataRoomId === roleDataKey
-      ? mergeRoomState(control, legacyMeta)
-      : null,
+    meta,
     judges,
     ownSubmission,
+    publicState: acceptedPublicState,
     writeMeta,
     writeSubmission,
     publishLegacyJudge,
+    writePublicState,
     resetAll,
     loadFailure: loadFailure?.roomId === roomId ? loadFailure : null,
   };
@@ -1198,19 +1187,20 @@ function PublicCompetitorPanel({ fighter, title, side, total, position, scoreCap
   );
 }
 
-function PublicScreen({ meta, judges, navigate, roomId }) {
+function PublicScreen({ meta, publicState, navigate, roomId }) {
   const time = useClock(meta);
   const p = meta.patternResult || makeEmptyPatternResult();
   const scoringMode = getScoringMode(meta);
   const binaryMode = scoringMode === "binary";
   const { left, right } = getDisplaySides(meta, "public");
-  const publicJudges = activeJudges(meta, judges);
-  const binary = binarySummary(meta, judges);
-  const revealBinaryVoting = binaryMode && time === 0 && binary.allSent;
+  const publicJudges = publicState.judges;
+  const binary = publicState.aggregate;
+  const allSent = publicJudges.length === activeJudgeCount(meta) && publicJudges.every((judge) => judge.sent);
+  const revealBinaryVoting = binaryMode && time === 0 && allSent;
   const revealPointsVoting = !binaryMode
     && time === 0
     && publicJudges.length > 0
-    && publicJudges.every((judge) => judge.pattern?.sent === true && judge.pattern?.evaluationId === meta.evaluationId);
+    && allSent;
   const evaluationStatus = meta.patternResult?.completed
     ? "FINISHED"
     : revealBinaryVoting
@@ -1293,20 +1283,12 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
                 style={{ "--patterns-judge-count": publicJudges.length }}
               >
                 {publicJudges.map((judge) => {
-                  const binary = judge.pattern?.binary;
-                  const sent = binaryMode
-                    ? binary?.sent === true && binary.evaluationId === meta.evaluationId && (binary.vote === "hong" || binary.vote === "chong")
-                    : !!judge.pattern?.sent && judge.pattern?.evaluationId === meta.evaluationId;
+                  const sent = judge.sent;
                   let revealedDecision = null;
                   if (binaryMode && revealBinaryVoting && sent) {
-                    revealedDecision = binary.vote;
+                    revealedDecision = judge.decision;
                   } else if (!binaryMode && revealPointsVoting && sent) {
-                    const totals = patternTotalsForJudge(judge);
-                    revealedDecision = totals.hong > totals.chong
-                      ? "hong"
-                      : totals.chong > totals.hong
-                        ? "chong"
-                        : "draw";
+                    revealedDecision = judge.decision;
                   }
                   const decisionLetter = revealedDecision === "hong" ? "H" : revealedDecision === "chong" ? "C" : revealedDecision === "draw" ? "D" : "";
                   return (
@@ -1349,7 +1331,7 @@ function PublicScreen({ meta, judges, navigate, roomId }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, resetAll, navigate, roomId }) {
+function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, writePublicState, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
   const p = patternSummary(meta, judges);
@@ -1387,6 +1369,8 @@ function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, resetAll
   const forceSequenceRef = useRef(0);
   const editorSaveTimeoutRef = useRef(null);
   const publishedSubmissionRef = useRef(new Map());
+  const publishedPublicStateRef = useRef(null);
+  const publicStateWriteQueueRef = useRef(Promise.resolve());
   const { left, right } = getDisplaySides(meta, "president");
   const persistedConfigurationLock = meta.status === "running"
     || meta.phase === "finished"
@@ -1422,6 +1406,30 @@ function PresidentScreen({ meta, judges, writeMeta, publishLegacyJudge, resetAll
       });
     });
   }, [judges, meta, meta.evaluationId, scoringMode, publishLegacyJudge]);
+
+  useEffect(() => {
+    const nextPublicState = derivePublicState(meta, judges);
+    const token = serializePublicState(nextPublicState);
+    if (publishedPublicStateRef.current === token) return;
+    publishedPublicStateRef.current = token;
+    publicStateWriteQueueRef.current = publicStateWriteQueueRef.current
+      .catch(() => undefined)
+      .then(() => writePublicState(nextPublicState))
+      .catch((error) => {
+        if (publishedPublicStateRef.current === token) publishedPublicStateRef.current = null;
+        console.error("Unable to publish Public State.", error);
+      });
+  }, [
+    judges,
+    meta.evaluationId,
+    scoringMode,
+    meta.config.patternJudges,
+    meta.patternResult?.hong,
+    meta.patternResult?.chong,
+    meta.patternResult?.completed,
+    meta.patternResult?.winner,
+    writePublicState,
+  ]);
 
   useEffect(() => {
     const next = {
@@ -2194,7 +2202,7 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
 export default function App() {
   const { path, navigate } = useRoute();
   const { roomId, role, judgeId } = parseAppRoute(path);
-  const { meta, judges, ownSubmission, writeMeta, writeSubmission, publishLegacyJudge, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
+  const { meta, judges, ownSubmission, publicState, writeMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
 
   useEffect(() => {
     if (!meta) return;
@@ -2227,6 +2235,7 @@ export default function App() {
         judges={judges}
         writeMeta={writeMeta}
         publishLegacyJudge={publishLegacyJudge}
+        writePublicState={writePublicState}
         resetAll={resetAll}
         navigate={navigate}
         roomId={roomId}
@@ -2235,7 +2244,7 @@ export default function App() {
   }
 
   if (role === "public") {
-    return <><GlobalAppStyle /><PublicScreen meta={meta} judges={judges} navigate={navigate} roomId={roomId} /></>;
+    return <><GlobalAppStyle /><PublicScreen meta={meta} publicState={publicState} navigate={navigate} roomId={roomId} /></>;
   }
 
   if (role === "judge") {

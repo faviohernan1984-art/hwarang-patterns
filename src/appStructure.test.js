@@ -85,7 +85,7 @@ test("Firestore snapshot failures are reported without bypassing the loading gat
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   assert.match(source, /reportLoadFailure\("control snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("meta snapshot", error\)/);
-  assert.match(source, /reportLoadFailure\("judges snapshot", error\)/);
+  assert.match(source, /reportLoadFailure\("public state snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("submissions snapshot", error\)/);
   assert.match(source, /reportLoadFailure\("own submission snapshot", error\)/);
   assert.match(source, /Unable to load \$\{source\} for room/);
@@ -198,10 +198,10 @@ test("Points SEND distinguishes incomplete, ready and registered visual states",
 
 test("President and Public indicators reject submissions from old evaluations", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
-  const publicSource = source.slice(source.indexOf("function PublicScreen"), source.indexOf("function PresidentScreen"));
+  const publicStateSource = readFileSync(new URL("./publicState.js", import.meta.url), "utf8");
   const presidentSource = source.slice(source.indexOf("function PresidentScreen"), source.indexOf("function JudgeScreen"));
-  assert.match(publicSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId/);
-  assert.match(publicSource, /binary\.evaluationId === meta\.evaluationId/);
+  assert.match(publicStateSource, /publicState\?\.evaluationId !== control\?\.evaluationId/);
+  assert.match(publicStateSource, /publicState\?\.scoringMode !== expectedMode/);
   assert.match(presidentSource, /judge\.pattern\?\.evaluationId === meta\.evaluationId/);
   assert.match(presidentSource, /binaryVote\.evaluationId === meta\.evaluationId/);
   assert.match(presidentSource, /patternSummary\(meta, judges\)/);
@@ -212,11 +212,36 @@ test("roles use the minimum room data listeners", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const hookSource = source.slice(source.indexOf("function useFightData"), source.indexOf("function controlFromMeta"));
   assert.match(hookSource, /role === "president"[\s\S]*?onSnapshot\(roomSubmissionsQuery\(roomId\)/);
-  assert.match(hookSource, /role === "public"[\s\S]*?onSnapshot\(roomJudgesQuery\(roomId\)/);
+  assert.match(hookSource, /role === "public"[\s\S]*?onSnapshot\(roomPublicStateRef\(roomId\)/);
   assert.match(hookSource, /role === "judge" && judgeId[\s\S]*?onSnapshot\(roomSubmissionRef\(roomId, judgeId\)/);
   const judgeBranch = hookSource.slice(hookSource.indexOf('role === "judge"'), hookSource.indexOf("} else {", hookSource.indexOf('role === "judge"')));
   assert.doesNotMatch(judgeBranch, /roomSubmissionsQuery|roomJudgesQuery/);
   assert.match(hookSource, /const writeSubmission[\s\S]*?setDoc\(roomSubmissionRef\(roomId, id\), submission\)/);
+
+  const publicStart = hookSource.indexOf('role === "public"');
+  const publicEnd = hookSource.indexOf('role === "judge"', publicStart);
+  const publicBranch = hookSource.slice(publicStart, publicEnd);
+  assert.doesNotMatch(publicBranch, /roomJudgesQuery|roomSubmissionsQuery|roomMetaRef|matchMetaRef/);
+  assert.match(hookSource, /if \(role !== "public"\)[\s\S]*?onSnapshot\(matchMetaRef/);
+});
+
+test("President publishes deduplicated Public State while keeping the legacy projection", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  const presidentSource = source.slice(source.indexOf("function PresidentScreen"), source.indexOf("function JudgeScreen"));
+  const publicEffectStart = presidentSource.indexOf("const nextPublicState = derivePublicState");
+  const publicEffectEnd = presidentSource.indexOf("useEffect", publicEffectStart);
+  const publicEffect = presidentSource.slice(publicEffectStart, publicEffectEnd);
+
+  assert.match(presidentSource, /publishLegacyJudge\(judge\.id, judge\)/);
+  assert.match(publicEffect, /serializePublicState\(nextPublicState\)/);
+  assert.match(publicEffect, /publishedPublicStateRef\.current === token/);
+  assert.match(publicEffect, /publicStateWriteQueueRef\.current[\s\S]*?writePublicState\(nextPublicState\)/);
+  assert.match(publicEffect, /meta\.evaluationId/);
+  assert.match(publicEffect, /scoringMode/);
+  assert.match(publicEffect, /meta\.config\.patternJudges/);
+  assert.match(publicEffect, /meta\.patternResult\?\.completed/);
+  assert.match(publicEffect, /meta\.patternResult\?\.winner/);
+  assert.doesNotMatch(publicEffect, /\btime\b|meta\.status|meta\.phase|phaseStartedAt|pausedRemaining|roundSeconds|publicSwapSides|meta\.hong|meta\.chong/);
 });
 
 test("Judge rehydrates only a current own submission and clears on generation changes", () => {

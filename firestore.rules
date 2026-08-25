@@ -150,6 +150,13 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      match /publicState/current {
+        allow read: if validPatternsRoomId(roomId);
+        // 2.6 debt: restrict writes by role once Rooms has verifiable President/Public identity.
+        allow create, update: if validPatternsRoomId(roomId);
+        allow delete: if false;
+      }
+
       match /judges/{judgeId} {
         allow read, create, update: if validPatternsRoomId(roomId)
           && judgeId in ["1", "2", "3", "4", "5"];
