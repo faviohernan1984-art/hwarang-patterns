@@ -74,6 +74,34 @@ service cloud.firestore {
       return roomId.matches('^[A-Za-z0-9_-]{1,64}$');
     }
 
+    function assignedToPatternsRoom(roomId) {
+      return signedIn()
+        && request.auth.token.roomId is string
+        && request.auth.token.roomId == roomId
+        && request.auth.token.role in ["president", "public", "judge"];
+    }
+
+    function isPatternsPresident(roomId) {
+      return assignedToPatternsRoom(roomId)
+        && request.auth.token.role == "president";
+    }
+
+    function isPatternsPublic(roomId) {
+      return assignedToPatternsRoom(roomId)
+        && request.auth.token.role == "public";
+    }
+
+    function isPatternsJudge(roomId, judgeId) {
+      return assignedToPatternsRoom(roomId)
+        && request.auth.token.role == "judge"
+        && request.auth.token.judgeId is int
+        && ((judgeId == "1" && request.auth.token.judgeId == 1)
+          || (judgeId == "2" && request.auth.token.judgeId == 2)
+          || (judgeId == "3" && request.auth.token.judgeId == 3)
+          || (judgeId == "4" && request.auth.token.judgeId == 4)
+          || (judgeId == "5" && request.auth.token.judgeId == 5));
+    }
+
     function validPatternsSubmissionJudge(judgeId) {
       return judgeId in ["1", "2", "3", "4", "5"]
         && ((judgeId == "1" && request.resource.data.judgeId == 1)
@@ -248,18 +276,20 @@ service cloud.firestore {
 
     match /rooms/{roomId} {
       match /control/current {
-        allow read: if validPatternsRoomId(roomId);
-        allow create: if validPatternsRoomId(roomId)
-          && validPatternsControl();
+        allow read: if validPatternsRoomId(roomId)
+          && assignedToPatternsRoom(roomId);
+        allow create: if false;
         allow update: if validPatternsRoomId(roomId)
+          && isPatternsPresident(roomId)
           && validPatternsControlUpdate();
         allow delete: if false;
       }
 
       match /submissions/{judgeId} {
         allow read: if validPatternsRoomId(roomId)
-          && judgeId in ["1", "2", "3", "4", "5"];
+          && (isPatternsPresident(roomId) || isPatternsJudge(roomId, judgeId));
         allow create, update: if validPatternsRoomId(roomId)
+          && isPatternsJudge(roomId, judgeId)
           && validPatternsSubmissionJudge(judgeId)
           && validPatternsSubmission()
           && validCurrentPatternsSubmission(roomId, judgeId);
@@ -267,23 +297,29 @@ service cloud.firestore {
       }
 
       match /meta/current {
-        allow read, create, update: if validPatternsRoomId(roomId);
+        allow read: if validPatternsRoomId(roomId)
+          && (isPatternsPresident(roomId)
+            || request.auth.token.role == "judge" && assignedToPatternsRoom(roomId));
+        allow create: if false;
+        allow update: if validPatternsRoomId(roomId)
+          && isPatternsPresident(roomId);
         allow delete: if false;
       }
 
       match /publicState/current {
-        allow read: if validPatternsRoomId(roomId);
-        // Role ownership still requires verifiable Rooms identities; shape and generation are enforced here.
+        allow read: if validPatternsRoomId(roomId)
+          && (isPatternsPresident(roomId) || isPatternsPublic(roomId));
         allow create, update: if validPatternsRoomId(roomId)
+          && isPatternsPresident(roomId)
           && validPatternsPublicState(roomId);
         allow delete: if false;
       }
 
       match /judges/{judgeId} {
         allow read: if validPatternsRoomId(roomId)
-          && judgeId in ["1", "2", "3", "4", "5"];
+          && (isPatternsPresident(roomId) || isPatternsJudge(roomId, judgeId));
         allow create, update: if validPatternsRoomId(roomId)
-          && judgeId in ["1", "2", "3", "4", "5"]
+          && isPatternsPresident(roomId)
           && validLegacyPatternsJudge(roomId, judgeId);
         allow delete: if false;
       }

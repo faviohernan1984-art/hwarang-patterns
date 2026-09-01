@@ -95,6 +95,14 @@ test("Firestore snapshot failures are reported without bypassing the loading gat
   assert.match(source, /if \(!meta\)[\s\S]*?Cargando\.\.\./);
 });
 
+test("visiting a room never provisions Firestore documents from the browser", () => {
+  const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /function ensureInitialDocs/);
+  assert.match(source, /ROOM_NOT_FOUND/);
+  assert.match(source, /authorizeRoomRoute/);
+  assert.match(source, /onIdTokenChanged/);
+});
+
 test("CONTROL is the official source for shared room coordination", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
   const controlStart = source.indexOf("function controlFromMeta");
@@ -231,7 +239,8 @@ test("roles use the minimum room data listeners", () => {
   assert.match(hookSource, /role === "president"[\s\S]*?onSnapshot\(roomSubmissionsQuery\(roomId\)/);
   assert.match(hookSource, /role === "public"[\s\S]*?onSnapshot\(roomPublicStateRef\(roomId\)/);
   assert.match(hookSource, /role === "judge" && judgeId[\s\S]*?onSnapshot\(roomSubmissionRef\(roomId, judgeId\)/);
-  const judgeBranch = hookSource.slice(hookSource.indexOf('role === "judge"'), hookSource.indexOf("} else {", hookSource.indexOf('role === "judge"')));
+  const judgeStart = hookSource.indexOf('} else if (role === "judge" && judgeId)');
+  const judgeBranch = hookSource.slice(judgeStart, hookSource.indexOf("} else {", judgeStart));
   assert.doesNotMatch(judgeBranch, /roomSubmissionsQuery|roomJudgesQuery/);
   assert.match(hookSource, /const writeSubmission[\s\S]*?setDoc\(roomSubmissionRef\(roomId, id\), submission\)/);
 
@@ -239,7 +248,7 @@ test("roles use the minimum room data listeners", () => {
   const publicEnd = hookSource.indexOf('role === "judge"', publicStart);
   const publicBranch = hookSource.slice(publicStart, publicEnd);
   assert.doesNotMatch(publicBranch, /roomJudgesQuery|roomSubmissionsQuery|roomMetaRef|matchMetaRef/);
-  assert.match(hookSource, /if \(role !== "public"\)[\s\S]*?onSnapshot\(matchMetaRef/);
+  assert.match(hookSource, /role === "president" \|\| role === "judge"[\s\S]*?onSnapshot\(matchMetaRef/);
 });
 
 test("President publishes deduplicated Public State while keeping the legacy projection", () => {

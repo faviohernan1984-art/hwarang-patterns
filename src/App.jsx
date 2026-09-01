@@ -16,7 +16,9 @@ import {
   roomJudgeRef,
   roomSubmissionsQuery,
   roomSubmissionRef,
+  auth,
 } from "./firebase";
+import { getIdTokenResult, onIdTokenChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
 import { binarySummary } from "./binarySummary";
 import { patternSummary, patternTotalsForJudge, currentPatternTotalsForJudge, currentPatternHasZero, isPatternSideComplete } from "./patternSummary";
@@ -24,6 +26,7 @@ import { makePointsSubmission, makeBinarySubmission, currentSubmission, submissi
 import { currentPublicState, derivePublicState, serializePublicState } from "./publicState";
 import { parseAppRoute, roomBasePath } from "./roomRoutes";
 import { applyForcedDecisionState } from "./forcedDecision";
+import { authorizeRoomRoute, identityFromClaims } from "./roomAccess";
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import "./HomeScreen.css";
@@ -333,17 +336,6 @@ function getDisplaySides(meta, context = "public") {
   return swap ? { left: hong, right: chong } : { left: chong, right: hong };
 }
 
-async function ensureInitialDocs(roomId) {
-  const matchMetaRef = roomMetaRef(roomId);
-  const controlRef = roomControlRef(roomId);
-  const [metaSnap, controlSnap] = await Promise.all([getDoc(matchMetaRef), getDoc(controlRef)]);
-  const migrationSource = metaSnap.exists() ? ensureMetaShape(metaSnap.data()) : makeInitialMeta();
-  const initialWrites = [];
-  if (!controlSnap.exists()) initialWrites.push(setDoc(controlRef, controlFromMeta(migrationSource)));
-  if (!metaSnap.exists()) initialWrites.push(setDoc(matchMetaRef, legacyMetaFromMeta(migrationSource)));
-  await Promise.all(initialWrites);
-}
-
 function useFightData(roomId, role, judgeId) {
   const roleDataKey = `${roomId}:${role}:${judgeId || "none"}`;
   const [control, setControl] = useState(null);
@@ -367,20 +359,24 @@ function useFightData(roomId, role, judgeId) {
     const markRoomConnection = () => {
       setLoadFailure((current) => current?.roomId === roomId ? null : current);
     };
-    if (role !== "public") ensureInitialDocs(roomId).catch((error) => reportLoadFailure("initial documents", error));
-
     const unsubControl = onSnapshot(controlRef, (snap) => {
       markRoomConnection();
-      if (!snap.exists()) return;
+      if (!snap.exists()) {
+        setLoadFailure({ roomId, source: "control snapshot", message: "ROOM_NOT_FOUND" });
+        return;
+      }
       setControl(controlFromMeta(snap.data()));
       setLoadedControlRoomId(roomId);
     }, (error) => reportLoadFailure("control snapshot", error));
 
     let unsubMeta = () => {};
-    if (role !== "public") {
+    if (role === "president" || role === "judge") {
       unsubMeta = onSnapshot(matchMetaRef, (snap) => {
         markRoomConnection();
-        if (!snap.exists()) return;
+        if (!snap.exists()) {
+          setLoadFailure({ roomId, source: "meta snapshot", message: "ROOM_NOT_FOUND" });
+          return;
+        }
         setLegacyMeta(legacyMetaFromMeta(snap.data()));
         setLoadedMetaRoomId(roomId);
       }, (error) => reportLoadFailure("meta snapshot", error));
@@ -495,7 +491,7 @@ function useFightData(roomId, role, judgeId) {
   };
 
   const acceptedPublicState = control ? currentPublicState(control, publicState) : null;
-  const metaReady = role === "public" || loadedMetaRoomId === roomId;
+  const metaReady = role === "public" || role === "home" || loadedMetaRoomId === roomId;
   const meta = loadedControlRoomId === roomId && metaReady && loadedRoleDataRoomId === roleDataKey
     ? role === "public"
       ? ensureMetaShape({
@@ -573,6 +569,36 @@ function useRoute() {
   };
 
   return { path, navigate };
+}
+
+function useRoomIdentity() {
+  const [state, setState] = useState({ loading: true, identity: null, error: null });
+
+  useEffect(() => onIdTokenChanged(auth, async (user) => {
+    if (!user) {
+      setState({ loading: false, identity: null, error: null });
+      return;
+    }
+    try {
+      const token = await getIdTokenResult(user);
+      setState({ loading: false, identity: identityFromClaims(user, token.claims), error: null });
+    } catch (error) {
+      setState({ loading: false, identity: null, error: error?.message || "AUTH_ERROR" });
+    }
+  }), []);
+
+  return state;
+}
+
+function AccessState({ title, detail }) {
+  return (
+    <div style={{ ...styles.page, display: "grid", placeItems: "center", minHeight: "100vh" }}>
+      <div style={{ ...styles.panel, maxWidth: 560, textAlign: "center" }}>
+        <h1 style={{ marginTop: 0 }}>{title}</h1>
+        <p>{detail}</p>
+      </div>
+    </div>
+  );
 }
 
 const styles = {
@@ -2176,9 +2202,8 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
   );
 }
 
-export default function App() {
-  const { path, navigate } = useRoute();
-  const { roomId, role, judgeId } = parseAppRoute(path);
+function AuthorizedRoomApp({ route, navigate }) {
+  const { roomId, role, judgeId } = route;
   const { meta, judges, ownSubmission, publicState, writeMeta, writeGenerationalMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
 
   useEffect(() => {
@@ -2244,4 +2269,26 @@ export default function App() {
   }
 
   return <><GlobalAppStyle /><Home navigate={navigate} meta={meta} roomId={roomId} /></>;
+}
+
+export default function App() {
+  const { path, navigate } = useRoute();
+  const route = parseAppRoute(path);
+  const identityState = useRoomIdentity();
+  const authorization = authorizeRoomRoute(identityState.identity, route);
+
+  if (!route.valid) {
+    return <><GlobalAppStyle /><AccessState title="INVALID ACCESS" detail={route.reason} /></>;
+  }
+  if (identityState.loading) {
+    return <><GlobalAppStyle /><AccessState title="VERIFYING ACCESS" detail="Checking room credentials..." /></>;
+  }
+  if (identityState.error) {
+    return <><GlobalAppStyle /><AccessState title="ACCESS ERROR" detail={identityState.error} /></>;
+  }
+  if (!authorization.allowed) {
+    return <><GlobalAppStyle /><AccessState title="ACCESS DENIED" detail={authorization.reason} /></>;
+  }
+
+  return <AuthorizedRoomApp route={route} navigate={navigate} />;
 }

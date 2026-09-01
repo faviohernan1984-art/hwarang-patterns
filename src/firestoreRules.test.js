@@ -22,6 +22,15 @@ test("Rooms rules enforce current CONTROL generation, mode and payload shapes", 
   assert.match(rules, /side\.keys\(\)\.hasOnly\(\["tech", "power", "rhythm", "zero"\]\)/);
   assert.match(rules, /judgeId in \["1", "2", "3", "4", "5"\]/);
   assert.match(rules, /allow delete: if false;/);
+  assert.match(rules, /function assignedToPatternsRoom\(roomId\)/);
+  assert.match(rules, /request\.auth\.token\.roomId == roomId/);
+  assert.match(rules, /function isPatternsPresident\(roomId\)/);
+  assert.match(rules, /function isPatternsPublic\(roomId\)/);
+  assert.match(rules, /function isPatternsJudge\(roomId, judgeId\)/);
+  assert.match(rules, /match \/control\/current \{[\s\S]*?allow create: if false;[\s\S]*?isPatternsPresident\(roomId\)/);
+  assert.match(rules, /match \/submissions\/\{judgeId\} \{[\s\S]*?isPatternsJudge\(roomId, judgeId\)/);
+  assert.match(rules, /match \/meta\/current \{[\s\S]*?allow create: if false;[\s\S]*?isPatternsPresident\(roomId\)/);
+  assert.match(rules, /match \/publicState\/current \{[\s\S]*?isPatternsPresident\(roomId\)[\s\S]*?isPatternsPublic\(roomId\)/);
   assert.doesNotMatch(rules, /match \/rooms\/\{document=\*\*\}/);
 });
 
