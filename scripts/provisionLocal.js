@@ -1,7 +1,7 @@
 /* global process */
 import { pathToFileURL } from 'node:url';
 import { deleteApp } from 'firebase-admin/app';
-import { localAdmin, PRESIDENT_UID, PRESIDENT_CLAIMS } from './localAdmin.js';
+import { localAdmin, PRESIDENT_UID, PRESIDENT_CLAIMS, DEV_IDENTITIES } from './localAdmin.js';
 import { emptyPublicState } from '../src/publicState.js';
 
 export async function provisionLocalRoom() {
@@ -23,14 +23,16 @@ export async function provisionLocalRoom() {
       [control, meta, emptyPublicState(control)].forEach((data, index) => transaction.create(refs[index], data));
       return true;
     });
-    try {
-      await auth.getUser(PRESIDENT_UID);
-    } catch (error) {
-      if (error.code !== 'auth/user-not-found') throw error;
-      await auth.createUser({ uid: PRESIDENT_UID, displayName: 'DEV President Room A' });
+    for (const [key, identity] of Object.entries(DEV_IDENTITIES)) {
+      try {
+        await auth.getUser(identity.uid);
+      } catch (error) {
+        if (error.code !== 'auth/user-not-found') throw error;
+        await auth.createUser({ uid: identity.uid, displayName: 'DEV ' + key + ' Room A' });
+      }
+      await auth.setCustomUserClaims(identity.uid, identity.claims);
     }
-    await auth.setCustomUserClaims(PRESIDENT_UID, PRESIDENT_CLAIMS);
-    return { projectId: app.options.projectId, roomId: 'A', uid: PRESIDENT_UID, claims: PRESIDENT_CLAIMS, created };
+    return { projectId: app.options.projectId, roomId: 'A', uid: PRESIDENT_UID, claims: PRESIDENT_CLAIMS, identities: DEV_IDENTITIES, created };
   } finally {
     await db.terminate();
     await deleteApp(app);

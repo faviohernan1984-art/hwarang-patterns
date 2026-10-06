@@ -53,3 +53,29 @@ Abrir http://localhost:5173/__dev/president en la PC y pulsar Entrar como Presid
 La entrada DEV no funciona desde LAN, no acepta parámetros de Room/rol/UID ni orígenes externos, no imprime tokens, solo existe con opt-in en Vite dev y no forma parte del build. No agregar credenciales productivas. Para salir, borrar los datos del sitio localhost:5173 en el navegador. Al reiniciar emuladores sin export/import, repetir provisioning.
 
 Para las pruebas de integracion usar emuladores desechables, pues los tests de reglas inicializan Room A/B. Ejecutar npm run test:emulators para las reglas. Para integracion President usar PATTERNS_DEV_PRESIDENT=true, PATTERNS_TEST_PRESIDENT=true, GCLOUD_PROJECT=demo-patterns-gups y ambos endpoints explicitos, y ejecutar npm run test:president sobre esos emuladores desechables. Ejecutar ambas suites secuencialmente. No ejecutar esta suite sobre una sesion manual en uso.
+
+
+## Microetapa 3: Public y Judges DEV
+
+El mismo npm run provision:local crea las cinco identidades fijas de Room A (President, Public, Judges 1-3), sin resetear documentos existentes. Se conserva el opt-in PATTERNS_DEV_PRESIDENT=true y los comandos de microetapa 2. No existe JOIN, aprobacion ni provision desde URL.
+
+Abrir en pestanas independientes, usando siempre localhost:5173:
+
+- http://localhost:5173/__dev/president
+- http://localhost:5173/__dev/public
+- http://localhost:5173/__dev/judge/1
+- http://localhost:5173/__dev/judge/2
+- http://localhost:5173/__dev/judge/3
+
+Pulsar Entrar en cada pestana: la sesion usa browserSessionPersistence (por pestana) y redirige a su URL operativa. Iniciar cada identidad en una pestana nueva, sin duplicar la pestana de otra identidad. Para cambiar de rol usar su entrada DEV. No abrir la URL operativa directamente esperando un login automatico. Cerrar la pestana termina su sesion DEV.
+
+Prueba manual minima: enviar votos desde Judges 1-3 y observar President/Public. Desde Public abrir /rooms/A/president (ROLE_FORBIDDEN). Desde Judge 1 abrir /rooms/A/judge/2 (JUDGE_FORBIDDEN). Desde cualquier identidad abrir /rooms/B con su rol (ROOM_FORBIDDEN). Acceso DEV solo en la PC por loopback; para sesiones anteriores a esta etapa volver a entrar desde su entrada DEV.
+
+Pruebas especificas: npm run test:roles. Integracion: PATTERNS_TEST_ROLES=true, opt-in y endpoints Admin explicitos contra emuladores desechables. No ejecutarla sobre una evaluacion manual en uso porque escribe submissions de prueba.
+
+
+### Realtime con cinco identidades DEV en el mismo navegador
+
+Solo en Vite dev, con pagina y emulador en loopback, Firestore usa un alias .localhost fijo por rol: patterns-president.localhost, patterns-public.localhost y patterns-judge-1/2/3.localhost (por ejemplo patterns-judge-1.localhost). Todos apuntan al mismo emulador y puerto. Se evitan colas HTTP/1.1 entre las conexiones Listen y Write de las cinco pestanas; no se comparten tokens ni privilegios. Auth sigue usando el endpoint configurado. En LAN, Node y build se conserva el host configurado.
+
+Tras aplicar este cambio cerrar las cinco pestanas anteriores y reabrir sus entradas DEV. No hace falta volver a provisionar ni borrar la Room. Validar START/PAUSE y SEND sin refrescar. No mantener pestanas antiguas conectadas al transporte anterior.

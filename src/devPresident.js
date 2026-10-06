@@ -1,5 +1,3 @@
-import { signInWithCustomToken, getIdTokenResult, signOut } from 'firebase/auth';
-import { auth } from './firebase.js';
 
 // Separate DEV entry; never imported by the operational app or production build.
 if (!import.meta.env.DEV) throw new Error('DEV entry is unavailable');
@@ -9,18 +7,25 @@ button.addEventListener('click', async () => {
   button.disabled = true;
   status.textContent = 'Iniciando sesión DEV…';
   try {
-    const response = await fetch('/__dev/president/token', { method: 'POST' });
-    if (!response.ok) throw new Error('Provisioná Room A y verificá los emuladores.');
+    // Bind the button before loading Firebase so import/init failures are visible.
+    const { setPersistence, browserSessionPersistence, signInWithCustomToken, getIdTokenResult, signOut } = await import('firebase/auth');
+    const { auth } = await import('./firebase.js');
+    await setPersistence(auth, browserSessionPersistence);
+    const response = await fetch('/__dev/' + button.dataset.key + '/token', { method: 'POST' });
+    if (!response.ok) throw new Error(await response.text() || 'DEV login unavailable.');
     const { token } = await response.json();
     const session = await signInWithCustomToken(auth, token);
     const { claims } = await getIdTokenResult(session.user, true);
-    if (claims.roomId !== 'A' || claims.role !== 'president') {
+    if (claims.roomId !== 'A' || claims.role !== button.dataset.role || (button.dataset.role === 'judge' && claims.judgeId !== Number(button.dataset.judgeId))) {
       await signOut(auth);
       throw new Error('Identidad DEV incorrecta.');
     }
-    window.location.assign('/rooms/A/president');
+    window.location.assign('/rooms/A/' + button.dataset.key);
   } catch (error) {
     status.textContent = error.message;
     button.disabled = false;
   }
 });
+
+button.disabled = false;
+status.textContent = '';

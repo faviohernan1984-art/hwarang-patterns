@@ -6,6 +6,17 @@ import { LOCAL_PROJECT_ID } from '../src/firebaseConfig.js';
 
 export const PRESIDENT_UID = 'dev-president-room-A';
 export const PRESIDENT_CLAIMS = Object.freeze({ roomId: 'A', role: 'president' });
+export const DEV_IDENTITIES = Object.freeze(Object.fromEntries([
+  ['president', PRESIDENT_UID, PRESIDENT_CLAIMS],
+  ['public', 'dev-public-room-A', { roomId: 'A', role: 'public' }],
+  ...[1, 2, 3].map(judgeId => ['judge/' + judgeId, 'dev-judge-' + judgeId + '-room-A', { roomId: 'A', role: 'judge', judgeId }]),
+].map(([key, uid, claims]) => [key, Object.freeze({ uid, claims: Object.freeze(claims), path: '/rooms/A/' + key })])));
+
+export function devIdentity(key) {
+  if (!Object.hasOwn(DEV_IDENTITIES, key)) throw new Error('Unsupported DEV identity');
+  return DEV_IDENTITIES[key];
+}
+
 export function validateAdminEnvironment(env) {
   if (env.PATTERNS_DEV_PRESIDENT !== 'true') throw new Error('PATTERNS_DEV_PRESIDENT=true is required');
   if (env.GCLOUD_PROJECT !== LOCAL_PROJECT_ID) throw new Error('Only demo-patterns-gups is allowed');
@@ -35,12 +46,15 @@ export function localAdmin() {
   return { app, auth: getAuth(app), db: getFirestore(app) };
 }
 
-export async function presidentToken() {
+export async function devToken(key) {
+  const identity = devIdentity(key);
   const { auth, db } = localAdmin();
-  const user = await auth.getUser(PRESIDENT_UID);
-  if (user.disabled || user.customClaims?.roomId !== 'A' || user.customClaims?.role !== 'president' || Object.keys(user.customClaims).length !== 2) throw new Error('Provision the DEV President first');
+  const user = await auth.getUser(identity.uid);
+  if (user.disabled || Object.keys(user.customClaims ?? {}).length !== Object.keys(identity.claims).length || Object.entries(identity.claims).some(([key, value]) => user.customClaims?.[key] !== value)) throw new Error('Provision the DEV identity first');
   const refs = ['control', 'meta', 'publicState'].map(name => db.doc('rooms/A/' + name + '/current'));
   const docs = await db.getAll(...refs);
   if (docs.some(doc => !doc.exists)) throw new Error('Provision Room A first');
-  return auth.createCustomToken(PRESIDENT_UID);
+  return auth.createCustomToken(identity.uid);
 }
+
+export const presidentToken = () => devToken("president");

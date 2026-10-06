@@ -1,6 +1,9 @@
-import { presidentToken, validateAdminEnvironment } from './localAdmin.js';
+import { devToken, devIdentity, DEV_IDENTITIES, validateAdminEnvironment } from './localAdmin.js';
 
-const page = '<!doctype html><html lang="es"><meta charset="utf-8"><title>President DEV</title><body><h1>President DEV · Room A</h1><button id="login">Entrar como President DEV</button><p id="status"></p><script type="module" src="/src/devPresident.js"></script></body></html>';
+function loginPage(key) {
+  const identity = devIdentity(key);
+  return '<!doctype html><html lang="es"><meta charset="utf-8"><title>Patterns DEV</title><body><h1>' + key + ' DEV - Room A</h1><button id="login" disabled data-key="' + key + '" data-role="' + identity.claims.role + '" data-judge-id="' + (identity.claims.judgeId ?? '') + '">Entrar como ' + key + ' DEV</button><p id="status">Cargando acceso DEV...</p><script type="module" src="/src/devPresident.js"></script></body></html>';
+}
 
 export function allowedDevRequest(req, requireOrigin = false) {
   const remote = req.socket?.remoteAddress;
@@ -16,25 +19,33 @@ export function devPresidentPlugin(env) {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const route = req.url?.split('?')[0];
-        if (route !== '/__dev/president' && route !== '/__dev/president/token') return next();
+        if (!route?.startsWith('/__dev/')) return next();
+        const isToken = route.endsWith('/token');
+        const key = route.slice('/__dev/'.length).replace(/\/token$/, '');
+        if (!Object.hasOwn(DEV_IDENTITIES, key)) {
+          res.statusCode = 404;
+          return res.end('Unsupported DEV identity');
+        }
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('X-Content-Type-Options', 'nosniff');
-        if (!allowedDevRequest(req, route.endsWith('/token'))) {
+        if (!allowedDevRequest(req, isToken)) {
           res.statusCode = 403;
           return res.end('DEV login is loopback and same-origin only');
         }
-        if (route === '/__dev/president' && req.method === 'GET') {
+        if (!isToken && req.method === 'GET') {
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
-          return res.end(page);
+          return res.end(loginPage(key));
         }
-        if (route === '/__dev/president/token' && req.method === 'POST') {
+        if (isToken && req.method === 'POST') {
           try {
-            const token = await presidentToken();
+            const token = await devToken(key);
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({ token }));
-          } catch {
+          } catch (error) {
             res.statusCode = 503;
-            return res.end('DEV identity/Room unavailable; run provisioning and check emulators');
+            return res.end(error.code === 'auth/user-not-found'
+              ? 'DEV identity missing in Auth Emulator; run npm run provision:local.'
+              : 'DEV identity/Room unavailable; run provisioning and check emulators');
           }
         }
         res.statusCode = 405;
