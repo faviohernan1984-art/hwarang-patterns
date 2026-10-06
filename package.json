@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/binarySummary.test.js src/patternSummary.test.js src/submissionPayloads.test.js src/forcedDecision.test.js src/publicState.test.js src/appStructure.test.js src/roomRoutes.test.js src/roomAccess.test.js src/firebaseRooms.test.js src/firestoreRules.test.js src/firestoreRooms.emulator.test.js",
+    "test": "node --env-file=.env --test src/firebaseConfig.test.js src/binarySummary.test.js src/patternSummary.test.js src/submissionPayloads.test.js src/forcedDecision.test.js src/publicState.test.js src/appStructure.test.js src/roomRoutes.test.js src/roomAccess.test.js src/firebaseRooms.test.js src/firestoreRules.test.js src/firestoreRooms.emulator.test.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-patterns-gups",
+    "test:emulators": "firebase emulators:exec --only auth,firestore --project demo-patterns-gups \"npm test\""
   },
   "dependencies": {
     "firebase": "^12.11.0",

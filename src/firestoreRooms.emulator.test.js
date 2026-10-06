@@ -30,7 +30,7 @@ test("Rooms Rules enforce verified room and role ownership", { skip: !emulatorHo
   const [host, port] = emulatorHost.split(":");
   const rules = await readFile(new URL("../firestore.rules", import.meta.url), "utf8");
   const environment = await initializeTestEnvironment({
-    projectId: "patterns-rooms-security-test",
+    projectId: "demo-patterns-gups",
     firestore: { host, port: Number(port), rules },
   });
   const ref = (database, roomId, collection, id = "current") => doc(database, `rooms/${roomId}/${collection}/${id}`);
