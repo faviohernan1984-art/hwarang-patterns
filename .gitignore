@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+# Local configuration must never be committed.
+.env
 .env.*
 !.env.example
