@@ -15,7 +15,9 @@
     "test:president": "node --env-file=.env --test scripts/localPresident.test.js",
     "test:roles": "node --env-file=.env --test scripts/localRoles.test.js",
     "provision:president": "node scripts/provisionPresident.js",
-    "test:provision": "node --test scripts/provisionPresident.test.js"
+    "test:provision": "node --test scripts/provisionPresident.test.js",
+    "president:password": "node scripts/initializePresidentPassword.js",
+    "test:login": "node --env-file=.env --test scripts/presidentLogin.test.js"
   },
   "dependencies": {
     "firebase": "^12.11.0",

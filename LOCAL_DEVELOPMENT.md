@@ -89,3 +89,15 @@ Con el opt-in y endpoints Admin loopback de microetapa 2:
 Crea/reutiliza una cuenta Auth sin password ni tokens de acceso y asigna claims President solo despues de provisionar los tres documentos. No habilita login ni acceso DEV para B. El comando provision:local conserva Room A y sus cinco identidades DEV.
 
 Los registros privados _localPresidentAssignments y _localRoomProvisioning reservan UID/Room y permiten reintentos sin resetear evaluaciones. Las Rules actuales niegan acceso cliente a esos registros. No borrar reservas para forzar reasignaciones. Una Room parcial sin registro, una parcial con documentos ya modificados o una Room completa sin propietario verificable se rechazan. Auth/Firestore no comparten transaccion: ante fallos pueden quedar una cuenta sin claims o una reserva pendiente; repetir exactamente el mismo comando. No hay rollback destructivo ni reasignacion automatica. Ejecutar tests de provisioning solo en emuladores desechables.
+
+## Microetapa 4.2: login President estandar en Emulator
+
+Con los endpoints Admin y opt-in de microetapa 2, inicializar la contrase?a de la cuenta ya provisionada:
+
+    npm.cmd run president:password -- --email president-b@patterns.test
+
+El script requiere una terminal interactiva y solicita dos veces una contrase?a oculta de 12-128 caracteres. No pasar contrase?as como argumentos ni variables de entorno. Solo acepta President con provisioning completo verificable; no crea cuentas, Rooms ni cambia claims. No reinicializa credenciales marcadas como inicializadas. Si Auth se actualiza y falla el registro posterior, un reintento del operador puede volver a establecer la contrase?a; no hay recuperacion productiva.
+
+Levantar Vite con host Emulator loopback y abrir http://localhost:5173/login. Introducir email y la contrase?a elegida. La Room y rol salen exclusivamente de claims; una identidad incompatible se cierra y no redirige. La sesion usa sessionStorage por pesta?a. Para logout abrir http://localhost:5173/logout en la MISMA pesta?a operativa y pulsar Cerrar sesion; luego abrir /rooms/B/president debe dar AUTH_REQUIRED. Cerrar sesion no cierra otras pesta?as independientes. Los accesos /__dev/* siguen intactos. No se habilita Firebase productivo.
+
+Pruebas especificas test:login solo contra emuladores desechables: modifican claims/cuentas y Rooms A/B de prueba.
