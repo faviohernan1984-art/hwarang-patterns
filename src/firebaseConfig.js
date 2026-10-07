@@ -1,5 +1,7 @@
-// Production stays blocked until real Project ID / App ID pairs are approved in code.
-const APPROVED_PRODUCTION_APPS = Object.freeze([]);
+// Only this explicitly approved Patterns identity may select cloud.
+const APPROVED_PRODUCTION_APPS = Object.freeze([
+  Object.freeze({ projectId: 'hwarang-patterns-production', appId: '1:649211397143:web:bc8237e2002fa099380852' }),
+]);
 const EMULATOR_KEYS = ['VITE_FIREBASE_EMULATOR_HOST', 'VITE_FIREBASE_ALLOW_LAN',
   'VITE_FIRESTORE_EMULATOR_PORT', 'VITE_AUTH_EMULATOR_PORT',
   'FIREBASE_AUTH_EMULATOR_HOST', 'FIRESTORE_EMULATOR_HOST'];

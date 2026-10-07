@@ -244,36 +244,6 @@ service cloud.firestore {
             && pattern.binary.sent == true));
     }
 
-    match /matches/{matchId} {
-      allow read: if isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
-      allow create: if isPresident(matchId) && validMetaCreate();
-      allow update: if isPresident(matchId) && validMetaUpdate();
-      allow delete: if false;
-
-      match /judges/{judgeId} {
-        allow read: if isPresident(matchId) || isJudge(matchId, judgeId);
-        allow create, delete: if isPresident(matchId);
-        allow update: if isPresident(matchId)
-          || isJudge(matchId, judgeId)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["pattern"])
-            && (validFirstPointsSubmission(matchId) || validFirstBinarySubmission(matchId));
-      }
-
-      match /public/state {
-        allow read: if isPublic(matchId) || isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
-        allow write: if false;
-      }
-
-      match /clock/state {
-        allow read: if isPresident(matchId) || assignedTo(matchId) && request.auth.token.role == "judge";
-        allow write: if false;
-      }
-
-      match /{document=**} {
-        allow read, write: if false;
-      }
-    }
-
     match /rooms/{roomId} {
       match /control/current {
         allow read: if validPatternsRoomId(roomId)

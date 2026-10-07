@@ -53,3 +53,36 @@ test('mixed production rejects even empty emulator variables', () => {
   }
   for (const override of [{ VITE_FIREBASE_USE_EMULATOR: 'true' }, { VITE_FIREBASE_ALLOW_PRODUCTION: 'false' }]) assert.throws(() => resolveFirebaseEnvironment({ ...production, ...override }), /Contradictory/);
 });
+
+const approvedProduction = {
+  ...production,
+  VITE_FIREBASE_PROJECT_ID: 'hwarang-patterns-production',
+  VITE_FIREBASE_APP_ID: '1:649211397143:web:bc8237e2002fa099380852',
+};
+test('approved production pair resolves public environment values without initializing Firebase', () => {
+  // API key/domain are test fixtures, not the real production configuration.
+  const settings = resolveFirebaseEnvironment(approvedProduction);
+  assert.equal(settings.environment, 'production');
+  assert.equal(settings.emulator, null);
+  assert.deepEqual(settings.firebaseConfig, {
+    projectId: approvedProduction.VITE_FIREBASE_PROJECT_ID,
+    appId: approvedProduction.VITE_FIREBASE_APP_ID,
+    apiKey: production.VITE_FIREBASE_API_KEY,
+    authDomain: production.VITE_FIREBASE_AUTH_DOMAIN,
+  });
+  assert.ok(Object.isFrozen(settings.firebaseConfig));
+});
+test('approved identity cannot be partially matched, incomplete or mixed with DEV', () => {
+  for (const override of [
+    { VITE_FIREBASE_APP_ID: production.VITE_FIREBASE_APP_ID },
+    { VITE_FIREBASE_PROJECT_ID: production.VITE_FIREBASE_PROJECT_ID },
+  ]) assert.throws(() => resolveFirebaseEnvironment({ ...approvedProduction, ...override }), /not approved/);
+  for (const key of Object.keys(approvedProduction)) {
+    for (const value of [undefined, '', ' ']) assert.throws(() => resolveFirebaseEnvironment({ ...approvedProduction, [key]: value }));
+  }
+  for (const key of ['VITE_FIREBASE_EMULATOR_HOST', 'VITE_FIREBASE_ALLOW_LAN', 'VITE_FIRESTORE_EMULATOR_PORT', 'VITE_AUTH_EMULATOR_PORT', 'FIREBASE_AUTH_EMULATOR_HOST', 'FIRESTORE_EMULATOR_HOST']) {
+    assert.throws(() => resolveFirebaseEnvironment({ ...approvedProduction, [key]: '' }), /Emulator configuration/);
+  }
+  assert.throws(() => resolveFirebaseEnvironment({ ...approvedProduction, VITE_APP_ENV: 'development' }));
+  assert.throws(() => resolveFirebaseEnvironment({ ...defaults, VITE_FIREBASE_PROJECT_ID: approvedProduction.VITE_FIREBASE_PROJECT_ID }));
+});
