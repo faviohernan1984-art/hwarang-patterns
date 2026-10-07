@@ -13,7 +13,9 @@
     "test:emulators": "firebase emulators:exec --only auth,firestore --project demo-patterns-gups \"npm test\"",
     "provision:local": "node scripts/provisionLocal.js",
     "test:president": "node --env-file=.env --test scripts/localPresident.test.js",
-    "test:roles": "node --env-file=.env --test scripts/localRoles.test.js"
+    "test:roles": "node --env-file=.env --test scripts/localRoles.test.js",
+    "provision:president": "node scripts/provisionPresident.js",
+    "test:provision": "node --test scripts/provisionPresident.test.js"
   },
   "dependencies": {
     "firebase": "^12.11.0",

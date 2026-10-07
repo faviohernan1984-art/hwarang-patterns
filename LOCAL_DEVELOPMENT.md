@@ -79,3 +79,13 @@ Pruebas especificas: npm run test:roles. Integracion: PATTERNS_TEST_ROLES=true, 
 Solo en Vite dev, con pagina y emulador en loopback, Firestore usa un alias .localhost fijo por rol: patterns-president.localhost, patterns-public.localhost y patterns-judge-1/2/3.localhost (por ejemplo patterns-judge-1.localhost). Todos apuntan al mismo emulador y puerto. Se evitan colas HTTP/1.1 entre las conexiones Listen y Write de las cinco pestanas; no se comparten tokens ni privilegios. Auth sigue usando el endpoint configurado. En LAN, Node y build se conserva el host configurado.
 
 Tras aplicar este cambio cerrar las cinco pestanas anteriores y reabrir sus entradas DEV. No hace falta volver a provisionar ni borrar la Room. Validar START/PAUSE y SEND sin refrescar. No mantener pestanas antiguas conectadas al transporte anterior.
+
+## Microetapa 4.1: Room y President parametrizados (solo Emulator)
+
+Con el opt-in y endpoints Admin loopback de microetapa 2:
+
+    npm.cmd run provision:president -- --room B --email president-b@patterns.test
+
+Crea/reutiliza una cuenta Auth sin password ni tokens de acceso y asigna claims President solo despues de provisionar los tres documentos. No habilita login ni acceso DEV para B. El comando provision:local conserva Room A y sus cinco identidades DEV.
+
+Los registros privados _localPresidentAssignments y _localRoomProvisioning reservan UID/Room y permiten reintentos sin resetear evaluaciones. Las Rules actuales niegan acceso cliente a esos registros. No borrar reservas para forzar reasignaciones. Una Room parcial sin registro, una parcial con documentos ya modificados o una Room completa sin propietario verificable se rechazan. Auth/Firestore no comparten transaccion: ante fallos pueden quedar una cuenta sin claims o una reserva pendiente; repetir exactamente el mismo comando. No hay rollback destructivo ni reasignacion automatica. Ejecutar tests de provisioning solo en emuladores desechables.
