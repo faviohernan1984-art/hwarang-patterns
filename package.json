@@ -19,6 +19,8 @@
     "test:provision:production": "node --test scripts/productionProvisioning.test.js",
     "test:provision": "node --test scripts/provisionPresident.test.js",
     "president:password": "node scripts/initializePresidentPassword.js",
+    "president:password:production": "node scripts/productionPresidentPassword.js",
+    "test:password:production": "node --test scripts/productionPresidentPassword.test.js",
     "test:login": "node --env-file=.env --test scripts/presidentLogin.test.js"
   },
   "dependencies": {
