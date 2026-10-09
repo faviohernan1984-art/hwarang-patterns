@@ -244,7 +244,37 @@ service cloud.firestore {
             && pattern.binary.sent == true));
     }
 
+    function currentDemoSession(roomId, sessionId) {
+      let meta = get(/databases/$(database)/documents/rooms/$(roomId)/meta/current).data;
+      return meta.get("demoSessionId", null) is string
+        && meta.demoSessionId == sessionId
+        && sessionId.matches('^[A-Za-z0-9_-]{1,64}$');
+    }
+
+    function validDemoCredits(sessionId) {
+      return request.resource.data.keys().hasOnly([
+          "sessionId", "consumedEvaluationIds", "confirmedCount"
+        ])
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.consumedEvaluationIds is list
+        && request.resource.data.confirmedCount is int
+        && request.resource.data.confirmedCount > 0
+        && request.resource.data.confirmedCount == request.resource.data.consumedEvaluationIds.size()
+        && request.resource.data.consumedEvaluationIds.toSet().size()
+          == request.resource.data.consumedEvaluationIds.size();
+    }
+
     match /rooms/{roomId} {
+      match /demoSessions/{sessionId} {
+        allow read: if validPatternsRoomId(roomId) && isPatternsPresident(roomId);
+        allow create: if validPatternsRoomId(roomId) && isPatternsPresident(roomId)
+          && currentDemoSession(roomId, sessionId) && validDemoCredits(sessionId);
+        allow update: if validPatternsRoomId(roomId) && isPatternsPresident(roomId)
+          && currentDemoSession(roomId, sessionId) && validDemoCredits(sessionId)
+          && request.resource.data.consumedEvaluationIds.hasAll(resource.data.consumedEvaluationIds);
+        allow delete: if false;
+      }
+
       match /control/current {
         allow read: if validPatternsRoomId(roomId)
           && assignedToPatternsRoom(roomId);
@@ -272,7 +302,8 @@ service cloud.firestore {
             || request.auth.token.role == "judge" && assignedToPatternsRoom(roomId));
         allow create: if false;
         allow update: if validPatternsRoomId(roomId)
-          && isPatternsPresident(roomId);
+          && isPatternsPresident(roomId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["demoSessionId"]);
         allow delete: if false;
       }
 

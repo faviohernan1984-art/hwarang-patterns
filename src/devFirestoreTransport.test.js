@@ -19,3 +19,13 @@ test('LAN settings and unrecognized routes are preserved', () => {
     assert.equal(devFirestoreTransportHost('127.0.0.1', path), '127.0.0.1');
   }
 });
+
+test('clean role routes preserve separate loopback pools for President, Public and five Judges', () => {
+  const roomId = 'demo-patterns-' + 'a'.repeat(24);
+  const paths = ['/president/' + roomId, '/public/' + roomId, ...Array.from({ length: 5 }, (_, i) => '/judge/' + roomId + '/' + (i + 1))];
+  const hosts = paths.map(path => devFirestoreTransportHost('127.0.0.1', path));
+  assert.equal(new Set(hosts).size, 7);
+  assert.deepEqual(hosts, ['patterns-president.localhost', 'patterns-public.localhost', ...Array.from({ length: 5 }, (_, i) => 'patterns-judge-' + (i + 1) + '.localhost')]);
+  assert.equal(devFirestoreTransportHost('192.168.0.146', paths[0]), '192.168.0.146');
+  for (const path of ['/president/' + roomId + '/extra', '/judge/' + roomId + '/6']) assert.equal(devFirestoreTransportHost('127.0.0.1', path), '127.0.0.1');
+});

@@ -21,7 +21,8 @@
     "president:password": "node scripts/initializePresidentPassword.js",
     "president:password:production": "node scripts/productionPresidentPassword.js",
     "test:password:production": "node --test scripts/productionPresidentPassword.test.js",
-    "test:login": "node --env-file=.env --test scripts/presidentLogin.test.js"
+    "test:login": "node --env-file=.env --test scripts/presidentLogin.test.js",
+    "test:demo-credits": "node --env-file=.env.example --test src/demoMatchCredits.test.js src/demoMatchCredits.emulator.test.js"
   },
   "dependencies": {
     "firebase": "^12.11.0",

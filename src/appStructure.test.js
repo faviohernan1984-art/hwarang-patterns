@@ -80,7 +80,7 @@ test("match configuration is locked in the UI and guarded in handlers", () => {
   assert.match(presidentSource, /patterns-president__preset[\s\S]*?disabled=\{configurationLocked\}/);
   assert.match(presidentSource, /disabled=\{configurationLocked\} onClick=\{\(\) => setPatternJudgeCount\(3\)\}/);
   assert.match(presidentSource, /disabled=\{configurationLocked\} onClick=\{\(\) => setPatternJudgeCount\(5\)\}/);
-  assert.match(presidentSource, /const resetEvaluation = async \(\) => \{\s*setLocalConfigurationLock\(false\)/);
+  assert.match(presidentSource, /const resetEvaluation = async \(\) => \{\s*if \(demoCredits\.isComplete\(\)\) \{ setShowDemoComplete\(true\); return; \}\s*setLocalConfigurationLock\(false\)/);
 });
 
 test("Firestore snapshot failures are reported without bypassing the loading gate", () => {
@@ -303,7 +303,7 @@ test("Forced Decision and generation advances share an atomic transaction guard"
   assert.match(transactionSource, /transaction\.get\(matchMetaRef\)/);
   assert.match(transactionSource, /current\.evaluationId !== expectedEvaluationId/);
   assert.match(transactionSource, /transaction\.set\(controlRef, nextControl\)/);
-  assert.match(transactionSource, /transaction\.set\(matchMetaRef, nextLegacyMeta\)/);
+  assert.match(transactionSource, /transaction\.set\(matchMetaRef, nextLegacyMeta, \{ mergeFields: \["presidentSwapSides", "patternResult"\] \}\)/);
   assert.match(forceSource, /const evaluationId = meta\.evaluationId/);
   assert.match(forceSource, /if \(!applied\)/);
 });

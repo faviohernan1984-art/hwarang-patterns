@@ -24,7 +24,7 @@ import { binarySummary } from "./binarySummary";
 import { patternSummary, patternTotalsForJudge, currentPatternTotalsForJudge, currentPatternHasZero, isPatternSideComplete } from "./patternSummary";
 import { makePointsSubmission, makeBinarySubmission, currentSubmission, submissionToJudge } from "./submissionPayloads";
 import { currentPublicState, derivePublicState, serializePublicState } from "./publicState";
-import { parseAppRoute, roomBasePath } from "./roomRoutes";
+import { parseAppRoute, roomBasePath, roomAccessLinks, isDemoRoomId, roomRolePath } from "./roomRoutes";
 import { applyForcedDecisionState } from "./forcedDecision";
 import { authorizeRoomRoute, identityFromClaims } from "./roomAccess";
 import { useWakeLock } from "./useWakeLock";
@@ -32,6 +32,11 @@ import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import "./HomeScreen.css";
 import "./PublicScreen.css";
 import "./PresidentScreen.css";
+import { useDemoMatchCredits } from "./useDemoMatchCredits.js";
+import DemoCompleteOverlay from "./DemoCompleteOverlay.jsx";
+import DemoWatermark from "./DemoWatermark.jsx";
+import DemoStart from "./DemoStart.jsx";
+import { authenticateLocalDemoRoute } from "./localDemoAccess.js";
 import "./JudgeBinary.css";
 import "./JudgePoints.css";
 
@@ -377,7 +382,7 @@ function useFightData(roomId, role, judgeId) {
           setLoadFailure({ roomId, source: "meta snapshot", message: "ROOM_NOT_FOUND" });
           return;
         }
-        setLegacyMeta(legacyMetaFromMeta(snap.data()));
+        setLegacyMeta({ ...legacyMetaFromMeta(snap.data()), demoSessionId: snap.data().demoSessionId });
         setLoadedMetaRoomId(roomId);
       }, (error) => reportLoadFailure("meta snapshot", error));
     }
@@ -439,7 +444,7 @@ function useFightData(roomId, role, judgeId) {
     const nextLegacyMeta = legacyMetaFromMeta(next);
     const writes = [];
     if (JSON.stringify(nextControl) !== JSON.stringify(currentControl)) writes.push(setDoc(controlRef, nextControl));
-    if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) writes.push(setDoc(matchMetaRef, nextLegacyMeta));
+    if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) writes.push(setDoc(matchMetaRef, nextLegacyMeta, { mergeFields: ["presidentSwapSides", "patternResult"] }));
     await Promise.all(writes);
   };
 
@@ -465,7 +470,7 @@ function useFightData(roomId, role, judgeId) {
       const currentLegacyMeta = legacyMetaFromMeta(current);
       const nextLegacyMeta = legacyMetaFromMeta(next);
       if (JSON.stringify(nextControl) !== JSON.stringify(currentControl)) transaction.set(controlRef, nextControl);
-      if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) transaction.set(matchMetaRef, nextLegacyMeta);
+      if (JSON.stringify(nextLegacyMeta) !== JSON.stringify(currentLegacyMeta)) transaction.set(matchMetaRef, nextLegacyMeta, { mergeFields: ["presidentSwapSides", "patternResult"] });
       return true;
     });
   };
@@ -507,6 +512,7 @@ function useFightData(roomId, role, judgeId) {
 
   return {
     meta,
+    demoSessionId: loadedMetaRoomId === roomId ? legacyMeta?.demoSessionId : null,
     judges,
     ownSubmission,
     publicState: acceptedPublicState,
@@ -783,7 +789,7 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
                 opacity: 0.9,
               }}
             >
-              HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>™</span>
+              HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>®</span>
             </div>
             <div
               style={{
@@ -887,7 +893,7 @@ function WinnerFullScreen({ winner, zIndex = 50, combatClone = false, mode = "pu
             fontWeight: 800,
           }}
         >
-          HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>™</span>
+          HWARANG SCORING UNIVERSE<span style={{ fontSize: 10, verticalAlign: "super" }}>®</span>
         </div>
 
         <div style={{ fontSize: isDraw ? 56 : 58, lineHeight: isDraw ? 1 : 0.95, textShadow: "none", letterSpacing: isDraw ? undefined : "0.04em" }}>
@@ -1144,17 +1150,10 @@ function Home({ navigate, meta, roomId }) {
   const judgesToShow = activeJudgeCount(meta);
   const [copiedPath, setCopiedPath] = useState(null);
   const base = getBaseURL();
-  const roomPath = roomBasePath(roomId);
-  const accessItems = [
-    { key: "president", label: "PRESIDENT", path: `${roomPath}/president`, tone: "president" },
-    { key: "public", label: "PUBLIC", path: `${roomPath}/public`, tone: "public" },
-    ...Array.from({ length: judgesToShow }, (_, index) => ({
-      key: `judge-${index + 1}`,
-      label: `JUDGE ${index + 1}`,
-      path: `${roomPath}/judge/${index + 1}`,
-      tone: "judge",
-    })),
-  ].map((access) => ({ ...access, accessUrl: `${base}${access.path}` }));
+  const accessItems = roomAccessLinks(roomId, judgesToShow).map(access => ({
+    ...access, label: access.role === 'judge' ? 'JUDGE ' + access.judgeId : access.role.toUpperCase(),
+    tone: access.role, accessUrl: base + access.path,
+  }));
 
   const copyAccessUrl = async (access) => {
     try {
@@ -1289,7 +1288,7 @@ function PublicScreen({ meta, publicState, navigate, roomId }) {
             </div>
           </div>
           <div className="patterns-public__title-lockup">
-            <div className="patterns-public__eyebrow">HWARANG SCORING UNIVERSE™</div>
+            <div className="patterns-public__eyebrow">HWARANG SCORING UNIVERSE®</div>
             <div className="patterns-public__product-stage">
               <span className="patterns-public__title-scan" aria-hidden="true" />
               <div className="patterns-public__product">PATTERNS GUP PRO</div>
@@ -1369,7 +1368,7 @@ function PublicScreen({ meta, publicState, navigate, roomId }) {
 
       <footer className="patterns-public__footer">
           <span />
-          <strong>HWARANG SCORING UNIVERSE™ · OFFICIAL PATTERNS SYSTEM</strong>
+          <strong>HWARANG SCORING UNIVERSE® · OFFICIAL PATTERNS SYSTEM</strong>
           <span />
       </footer>
 
@@ -1382,9 +1381,12 @@ function PublicScreen({ meta, publicState, navigate, roomId }) {
   );
 }
 
-function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publishLegacyJudge, writePublicState, resetAll, navigate, roomId }) {
+function PresidentScreen({ meta, demoSessionId, judges, writeMeta, writeGenerationalMeta, publishLegacyJudge, writePublicState, resetAll, navigate, roomId }) {
   meta = ensureMetaShape(meta);
   const time = useClock(meta);
+  const { credits: demoCredits, count: demoCount } = useDemoMatchCredits(roomId, demoSessionId);
+  const [showDemoComplete, setShowDemoComplete] = useState(false);
+  const [demoStorageError, setDemoStorageError] = useState(null);
   const p = patternSummary(meta, judges);
   const prevRunningRef = useRef(false);
   const prevFinishedRef = useRef(false);
@@ -1735,6 +1737,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publi
   };
 
   const prepareNextMatch = async () => {
+    if (demoCredits.isComplete()) { setShowDemoComplete(true); return; }
     setLocalConfigurationLock(false);
     await writeGenerationalMeta((current) => {
       const roundSeconds = current.config.roundSeconds || 120;
@@ -1791,6 +1794,7 @@ function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publi
   };
 
   const resetEvaluation = async () => {
+    if (demoCredits.isComplete()) { setShowDemoComplete(true); return; }
     setLocalConfigurationLock(false);
     await resetAll();
   };
@@ -1801,6 +1805,19 @@ function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publi
       current[side][field] = value;
       return current;
     });
+  };
+
+  const closePresidentWinner = () => {
+    const winner = forcedWinnerIntent || meta.patternResult?.winner;
+    if (hidePresidentWinner || !["hong", "chong", "draw"].includes(winner)
+      || (!forcedWinnerIntent && !meta.patternResult?.completed)) return;
+    try {
+      demoCredits.consume(meta.evaluationId);
+      setDemoStorageError(null);
+      setHidePresidentWinner(true);
+    } catch {
+      setDemoStorageError("Unable to save the demo credit locally. Enable browser storage and retry CLOSE.");
+    }
   };
 
   const showPresidentWinner = !!forcedWinnerIntent || !!meta.patternResult?.completed;
@@ -1841,8 +1858,9 @@ function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publi
           </nav>
 
           <div className="patterns-president__brand" aria-label="Hwarang Scoring Universe Patterns GUP Pro">
-            <span>HWARANG SCORING UNIVERSE™</span>
+            <span>HWARANG SCORING UNIVERSE®</span>
             <strong>PATTERNS GUP PRO</strong>
+            {demoCredits.active && <span className="patterns-president__demo-counter">DEMO {demoCount}/25</span>}
           </div>
         </header>
 
@@ -1990,13 +2008,15 @@ function PresidentScreen({ meta, judges, writeMeta, writeGenerationalMeta, publi
           </div>
         </section>
 
-        {showPresidentWinner && !hidePresidentWinner && (
+        {showPresidentWinner && !hidePresidentWinner && !demoCredits.isConsumed(meta.evaluationId) && (
           <ViewportWinnerOverlay
             winner={presidentWinner}
             mode="president"
-            onClose={() => setHidePresidentWinner(true)}
+            onClose={closePresidentWinner}
           />
         )}
+        {showDemoComplete && <DemoCompleteOverlay onClose={() => setShowDemoComplete(false)} />}
+        {demoStorageError && <div className="patterns-president__demo-error" role="alert">{demoStorageError}</div>}
       </div>
     </Frame16x9>
   );
@@ -2204,7 +2224,7 @@ function JudgeScreen({ meta, judges, ownSubmission, writeSubmission, judgeId, na
 
 function AuthorizedRoomApp({ route, navigate }) {
   const { roomId, role, judgeId } = route;
-  const { meta, judges, ownSubmission, publicState, writeMeta, writeGenerationalMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
+  const { meta, demoSessionId, judges, ownSubmission, publicState, writeMeta, writeGenerationalMeta, writeSubmission, publishLegacyJudge, writePublicState, resetAll, loadFailure } = useFightData(roomId, role, judgeId);
 
   useEffect(() => {
     if (!meta) return;
@@ -2238,6 +2258,7 @@ function AuthorizedRoomApp({ route, navigate }) {
     return (
       <><GlobalAppStyle /><PresidentScreen
         meta={meta}
+        demoSessionId={demoSessionId}
         judges={judges}
         writeMeta={writeMeta}
         writeGenerationalMeta={writeGenerationalMeta}
@@ -2276,6 +2297,25 @@ export default function App() {
   const route = parseAppRoute(path);
   const identityState = useRoomIdentity();
   const authorization = authorizeRoomRoute(identityState.identity, route);
+  const [demoAccessState, setDemoAccessState] = useState({ path: null, error: null });
+  const cleanDemo = route.valid && isDemoRoomId(route.roomId)
+    && (route.role === 'home' ? path === roomBasePath(route.roomId) : path === roomRolePath(route.roomId, route.role, route.judgeId));
+  useEffect(() => {
+    if (!cleanDemo) return;
+    let cancelled = false;
+    setDemoAccessState({ path: null, error: null });
+    authenticateLocalDemoRoute(auth, route).then(() => {
+      if (!cancelled) setDemoAccessState({ path, error: null });
+    }).catch(error => {
+      if (!cancelled) setDemoAccessState({ path, error: error.message });
+    });
+    return () => { cancelled = true; };
+  }, [path, cleanDemo]);
+
+  if (path === '/') return <DemoStart />;
+  if (cleanDemo && (demoAccessState.path !== path || demoAccessState.error)) {
+    return <AccessState title={demoAccessState.error ? 'ACCESS ERROR' : 'VERIFYING ACCESS'} detail={demoAccessState.error || 'Checking room credentials...'} />;
+  }
 
   if (!route.valid) {
     return <><GlobalAppStyle /><AccessState title="INVALID ACCESS" detail={route.reason} /></>;
@@ -2290,5 +2330,5 @@ export default function App() {
     return <><GlobalAppStyle /><AccessState title="ACCESS DENIED" detail={authorization.reason} /></>;
   }
 
-  return <AuthorizedRoomApp route={route} navigate={navigate} />;
+  return <>{isDemoRoomId(route.roomId) && ['president', 'public', 'judge'].includes(route.role) && <DemoWatermark role={route.role} />}<AuthorizedRoomApp route={route} navigate={navigate} /></>;
 }

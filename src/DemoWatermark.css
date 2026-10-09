@@ -1,0 +1,4 @@
+.patterns-demo-watermark { position: fixed; left: 0; right: 0; top: 72%; z-index: 999998; pointer-events: none; overflow: hidden; background: rgba(0,0,0,.55); border-block: 5px solid rgba(96,165,250,.75); box-shadow: 0 0 18px rgba(96,165,250,.18); padding: 33px 0; }
+.patterns-demo-watermark__ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: patternsDemoTicker 18s linear infinite; color: #60a5fa; font-size: clamp(16px,2vw,34px); font-weight: 900; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 0 10px rgba(96,165,250,.45); }
+@keyframes patternsDemoTicker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) { .patterns-demo-watermark__ticker { animation: none; padding-left: 12px; } }

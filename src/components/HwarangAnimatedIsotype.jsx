@@ -11,7 +11,7 @@ export default function HwarangAnimatedIsotype({
         <span className="hwarang-animated-isotype__ring" />
         <span className="hwarang-animated-isotype__letter">H</span>
       </span>
-      {showLabel && <span className="hwarang-animated-isotype__label">HWARANG SCORING UNIVERSE™</span>}
+      {showLabel && <span className="hwarang-animated-isotype__label">HWARANG SCORING UNIVERSE®</span>}
     </div>
   );
 }
