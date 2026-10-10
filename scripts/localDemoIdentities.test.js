@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { randomBytes, createHash } from 'node:crypto';
+const credential = randomBytes(32).toString('hex');
+const credentialHash = createHash('sha256').update(credential).digest('hex');
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -24,7 +27,7 @@ function fixture() {
   let failCreateUid, failClaimUid, failClaimAfter = false, failComplete = false;
   const db = {
     projectId: env.GCLOUD_PROJECT,
-    doc: path => ({ path }),
+    doc: path => ({ path, get: async () => ({ exists: documents.has(path), data: () => structuredClone(documents.get(path)) }) }),
     runTransaction(callback) {
       const operation = queue.then(async () => {
         const pending = [];
@@ -70,6 +73,7 @@ function fixture() {
     failCreate(uid) { failCreateUid = uid; }, failClaim(uid, after = false) { failClaimUid = uid; failClaimAfter = after; },
     failComplete() { failComplete = true; },
     seed(roomId, judges = 3) {
+      documents.set('localDemoAuthorization/' + roomId, { version: 1, roles: Object.fromEntries(Object.keys(demoIdentities(roomId, 5)).map(key => [key, { hash: credentialHash, active: true }])) });
       const [control, meta, publicState] = initialRoomDocuments();
       control.config.patternJudges = judges;
       const demoSessionId = 'patterns-session-' + roomId.slice('demo-patterns-'.length);
@@ -82,7 +86,7 @@ function fixture() {
 }
 const provision = (f, id) => provisionLocalDemoIdentities(f.admin, id, { env });
 const access = (f, id, key) => readLocalDemoAccess(f.admin, id, key, { env });
-const token = (f, id, key) => issueLocalDemoToken(f.admin, id, key, { env });
+const token = (f, id, key) => issueLocalDemoToken(f.admin, id, key, { env, credential });
 
 function roomData(f) { return new Map([...f.documents].filter(([path]) => path.startsWith('rooms/'))); }
 
@@ -233,7 +237,7 @@ test('foreign journals, unknown rooms, Room A and unsupported keys cannot grant 
   for (const id of ['A', '../other', room('b')]) await assert.rejects(provision(f, id));
   f.documents.delete(journalPath(room('a')));
   await provision(f, room('a'));
-  for (const key of ['judge/4', 'judge/0', 'judge/6', 'admin', '__proto__', 'president/token']) await assert.rejects(token(f, room('a'), key), /UNSUPPORTED/);
+  for (const key of ['judge/4', 'judge/0', 'judge/6', 'admin', '__proto__', 'president/token']) await assert.rejects(token(f, room('a'), key), /UNSUPPORTED|AUTHORIZATION_DENIED/);
   assert.equal(f.tokens, 0);
 });
 
@@ -260,7 +264,7 @@ function middleware(envValue, dependencies) {
   let handler;
   devPresidentPlugin(envValue, dependencies).configureServer({ middlewares: { use(value) { handler = value; } } });
   return async (url, method = 'GET', override = {}) => {
-    const req = { url, method, socket: { remoteAddress: '127.0.0.1' }, headers: { host: 'localhost:5173', origin: 'http://localhost:5173' }, ...override };
+    const req = { url, method, socket: { remoteAddress: '127.0.0.1' }, headers: { host: 'localhost:5173', origin: 'http://localhost:5173', authorization: 'Bearer ' + credential }, ...override };
     const result = { statusCode: 200, headers: {}, body: null, next: false };
     const res = { set statusCode(value) { result.statusCode = value; }, setHeader(key, value) { result.headers[key] = value; }, end(value) { result.body = value; } };
     await handler(req, res, () => { result.next = true; });

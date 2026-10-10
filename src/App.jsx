@@ -36,7 +36,8 @@ import { useDemoMatchCredits } from "./useDemoMatchCredits.js";
 import DemoCompleteOverlay from "./DemoCompleteOverlay.jsx";
 import DemoWatermark from "./DemoWatermark.jsx";
 import DemoStart from "./DemoStart.jsx";
-import { authenticateLocalDemoRoute } from "./localDemoAccess.js";
+import { storedDemoCredential } from "./localDemoAccess.js";
+import DemoAccessGate from "./DemoAccessGate.jsx";
 import "./JudgeBinary.css";
 import "./JudgePoints.css";
 
@@ -1205,6 +1206,15 @@ function Home({ navigate, meta, roomId }) {
               </button>
               <code className="patterns-home__route">{access.path}</code>
               <button type="button" className="patterns-home__copy" onClick={() => copyAccessUrl(access)}>{copiedPath === access.path ? "COPIED" : "COPY URL"}</button>
+              {isDemoRoomId(roomId) && storedDemoCredential(window.sessionStorage, roomId, 'president') && storedDemoCredential(window.sessionStorage, roomId, access.key) && <details>
+                <summary>ROLE CREDENTIAL</summary>
+                <p>Share separately from the URL or QR.</p>
+                <input type="password" aria-label={`${access.label} credential`} readOnly value={storedDemoCredential(window.sessionStorage, roomId, access.key)} onFocus={event => event.target.select()} />
+                <button type="button" onClick={async () => {
+                  try { await navigator.clipboard.writeText(storedDemoCredential(window.sessionStorage, roomId, access.key)); }
+                  catch { /* The selectable field remains available when clipboard access is denied. */ }
+                }}>COPY CREDENTIAL</button>
+              </details>}
             </article>
           ))}
         </div>
@@ -2297,25 +2307,15 @@ export default function App() {
   const route = parseAppRoute(path);
   const identityState = useRoomIdentity();
   const authorization = authorizeRoomRoute(identityState.identity, route);
-  const [demoAccessState, setDemoAccessState] = useState({ path: null, error: null });
   const cleanDemo = route.valid && isDemoRoomId(route.roomId)
     && (route.role === 'home' ? path === roomBasePath(route.roomId) : path === roomRolePath(route.roomId, route.role, route.judgeId));
-  useEffect(() => {
-    if (!cleanDemo) return;
-    let cancelled = false;
-    setDemoAccessState({ path: null, error: null });
-    authenticateLocalDemoRoute(auth, route).then(() => {
-      if (!cancelled) setDemoAccessState({ path, error: null });
-    }).catch(error => {
-      if (!cancelled) setDemoAccessState({ path, error: error.message });
-    });
-    return () => { cancelled = true; };
-  }, [path, cleanDemo]);
 
   if (path === '/') return <DemoStart />;
-  if (cleanDemo && (demoAccessState.path !== path || demoAccessState.error)) {
-    return <AccessState title={demoAccessState.error ? 'ACCESS ERROR' : 'VERIFYING ACCESS'} detail={demoAccessState.error || 'Checking room credentials...'} />;
-  }
+  if (cleanDemo) return <DemoAccessGate key={path} auth={auth} route={route}>
+    {identityState.loading ? <AccessState title="VERIFYING ACCESS" detail="Checking room credentials..." />
+      : !authorization.allowed || identityState.error ? <AccessState title="ACCESS DENIED" detail="Room authorization is required." />
+        : <>{['president', 'public', 'judge'].includes(route.role) && <DemoWatermark role={route.role} />}<AuthorizedRoomApp route={route} navigate={navigate} /></>}
+  </DemoAccessGate>;
 
   if (!route.valid) {
     return <><GlobalAppStyle /><AccessState title="INVALID ACCESS" detail={route.reason} /></>;

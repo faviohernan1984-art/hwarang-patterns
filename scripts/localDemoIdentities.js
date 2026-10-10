@@ -2,6 +2,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { localAdmin, validateAdminEnvironment } from './localAdmin.js';
 import { ensureLocalDemoRoom } from './localDemoProvisioning.js';
+import { authorizeLocalDemo } from './localDemoAuthorization.js';
 
 const ROOM_ID = /^demo-patterns-[a-f0-9]{24}$/;
 const JOURNAL_COLLECTION = 'localDemoIdentityProvisioning';
@@ -122,10 +123,11 @@ export async function readLocalDemoAccess(admin, roomId, key, { env = process.en
 }
 
 export async function issueLocalDemoToken(admin, roomId, key, options) {
+  await authorizeLocalDemo(admin.db, roomId, key, options?.credential, options);
   const identity = await readLocalDemoAccess(admin, roomId, key, options);
   return admin.auth.createCustomToken(identity.uid);
 }
 
 // Shared DEV server Admin instance; requests never provision or mutate identities.
 export const demoAccess = (roomId, key) => readLocalDemoAccess(localAdmin(), roomId, key);
-export const demoToken = (roomId, key) => issueLocalDemoToken(localAdmin(), roomId, key);
+export const demoToken = (roomId, key, credential) => issueLocalDemoToken(localAdmin(), roomId, key, { credential });

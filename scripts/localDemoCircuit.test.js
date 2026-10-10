@@ -1,9 +1,11 @@
 import test from 'node:test';
+import { randomBytes } from 'node:crypto';
+const credential = randomBytes(32).toString('hex');
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { parseAppRoute, roomAccessLinks, roomBasePath } from '../src/roomRoutes.js';
-import { authenticateLocalDemoRoute, requestLocalDemo } from '../src/localDemoAccess.js';
+import { authenticateLocalDemoRoute, requestLocalDemo, demoCredentialStorageKey } from '../src/localDemoAccess.js';
 import { demoIdentities } from './localDemoIdentities.js';
 import { devPresidentPlugin } from './devPresidentPlugin.js';
 
@@ -12,7 +14,7 @@ const other = 'demo-patterns-' + 'b'.repeat(24);
 const sessionId = 'patterns-session-' + 'a'.repeat(24);
 const source = Object.fromEntries(readFileSync(new URL('../.env.example', import.meta.url), 'utf8').split(/\r?\n/).filter(line => line && !line.startsWith('#')).map(line => line.split('=')));
 const env = { PATTERNS_DEV_PRESIDENT: 'true', GCLOUD_PROJECT: 'demo-patterns-gups', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' };
-const memoryStorage = () => { const values = new Map(); return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) }; };
+const memoryStorage = () => { const values = new Map(); return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }; };
 
 function authFixture(claims) {
   const calls = []; let signOuts = 0;
@@ -22,7 +24,9 @@ function authFixture(claims) {
     signInWithCustomToken: async (_, value) => { assert.equal(value, 'verified-token'); auth.currentUser = { uid: 'demo-user' }; return { user: auth.currentUser }; },
     getIdTokenResult: async () => ({ claims }), signOut: async () => { signOuts += 1; auth.currentUser = null; },
   };
-  const options = { source, hostname: '127.0.0.1', sdk, fetchImpl: async (url, init) => { calls.push([url, init]); return { ok: true, json: async () => ({ token: 'verified-token' }) }; } };
+  const storage = memoryStorage();
+  for (const { key } of roomAccessLinks(id, 5)) storage.setItem(demoCredentialStorageKey(id, key), credential);
+  const options = { source, hostname: '127.0.0.1', sdk, storage, fetchImpl: async (url, init) => { calls.push([url, init]); return { ok: true, json: async () => ({ token: 'verified-token' }) }; } };
   return { auth, options, calls, get signOuts() { return signOuts; } };
 }
 
@@ -49,6 +53,7 @@ test('clean entries authenticate President, Public and configured judges with nu
     await authenticateLocalDemoRoute(f.auth, parseAppRoute(link.path), f.options);
     assert.equal(f.calls[0][0], '/api/demo-access/' + id + '/' + link.key);
     assert.equal(f.calls[0][1].method, 'POST');
+    assert.equal(f.calls[0][1].headers.Authorization, 'Bearer ' + credential);
     assert.equal(f.signOuts, 0);
   }
 });
@@ -87,7 +92,8 @@ test('client create-demo persists the server ID and explicitly reuses it without
   const storage = memoryStorage(); const bodies = [];
   const options = { source, hostname: 'localhost', storage, fetchImpl: async (url, init) => {
     assert.equal(url, '/api/create-demo'); bodies.push(JSON.parse(init.body));
-    return { ok: true, json: async () => ({ ok: true, roomId: id, demoSessionId: sessionId }) };
+    return { ok: true, json: async () => ({ ok: true, roomId: id, demoSessionId: sessionId, created: bodies.length === 1,
+      ...(bodies.length === 1 ? { credentials: Object.fromEntries(roomAccessLinks(id, 3).map(({ key }) => [key, credential])) } : {}) }) };
   } };
   assert.equal(await requestLocalDemo(options), '/' + id);
   assert.equal(await requestLocalDemo(options), '/' + id);
@@ -107,7 +113,7 @@ function middleware(dependencies) {
   let handler;
   devPresidentPlugin(env, dependencies).configureServer({ middlewares: { use(value) { handler = value; } } });
   return async (url, { method = 'POST', body = '{}', host = 'localhost:5173', origin = 'http://localhost:5173', remote = '127.0.0.1' } = {}) => {
-    const req = Readable.from([body]); Object.assign(req, { url, method, socket: { remoteAddress: remote }, headers: { host, origin, 'content-type': 'application/json' } });
+    const req = Readable.from([body]); Object.assign(req, { url, method, socket: { remoteAddress: remote }, headers: { host, origin, 'content-type': 'application/json', authorization: 'Bearer ' + credential } });
     const result = { statusCode: 200, headers: {}, body: null };
     await handler(req, { set statusCode(value) { result.statusCode = value; }, setHeader(key, value) { result.headers[key] = value; }, end(value) { result.body = JSON.parse(value); } }, () => { throw new Error('Unexpected passthrough'); });
     return result;
@@ -126,7 +132,7 @@ test('local API reuses the existing allocator and returns only clean access path
     assert.equal(JSON.stringify(first.body).includes('__dev'), false);
     const second = await request('/api/create-demo', { body: JSON.stringify({ roomId: id }) });
     assert.equal(second.statusCode, 200); assert.equal(second.body.demoSessionId, sessionId);
-    assert.deepEqual(calls, [[null, { dispose: false }], [id, { dispose: false }]]);
+    assert.deepEqual(calls, [[null, { dispose: false, credential }], [id, { dispose: false, credential }]]);
     assert.equal(first.headers['Cache-Control'], 'no-store');
   }
 });

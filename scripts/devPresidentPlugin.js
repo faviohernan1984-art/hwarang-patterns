@@ -2,6 +2,7 @@ import { devToken, devIdentity, DEV_IDENTITIES, validateAdminEnvironment } from 
 import { demoAccess, demoToken } from './localDemoIdentities.js';
 import { createLocalDemo } from './createLocalDemo.js';
 import { roomAccessLinks, roomBasePath } from '../src/roomRoutes.js';
+import { demoCredential, authorizationDenied } from './localDemoAuthorization.js';
 
 function loginPage(key, identity = devIdentity(key), roomId = 'A', tokenPath = '/__dev/' + key + '/token') {
   return '<!doctype html><html lang="es"><meta charset="utf-8"><title>Patterns DEV</title><body><h1>' + key + ' DEV - Room ' + roomId + '</h1><button id="login" disabled data-key="' + key + '" data-room-id="' + roomId + '" data-token-path="' + tokenPath + '" data-role="' + identity.claims.role + '" data-judge-id="' + (identity.claims.judgeId ?? '') + '">Entrar como ' + key + ' DEV</button><p id="status">Cargando acceso DEV...</p><script type="module" src="/src/devPresident.js"></script></body></html>';
@@ -45,13 +46,17 @@ export function devPresidentPlugin(env, { demoAccessFn = demoAccess, demoTokenFn
             } catch { return reply(400, { ok: false, code: 'INVALID_REQUEST' }); }
           }
           try {
-            if (access) return reply(200, { ok: true, token: await demoTokenFn(access[1], access[2]) });
-            const result = await createDemoFn(requestedRoomId, { dispose: false });
+            const credential = demoCredential(req);
+            if ((access || requestedRoomId) && !credential) throw authorizationDenied();
+            if (access) return reply(200, { ok: true, token: await demoTokenFn(access[1], access[2], credential) });
+            const result = await createDemoFn(requestedRoomId, { dispose: false, credential });
             const judgeCount = Object.values(result.identities).filter(identity => identity.claims.role === 'judge').length;
             return reply(result.created ? 201 : 200, { ok: true, roomId: result.roomId, demoSessionId: result.demoSessionId,
-              created: result.created, path: roomBasePath(result.roomId), access: roomAccessLinks(result.roomId, judgeCount) });
+              created: result.created, path: roomBasePath(result.roomId), access: roomAccessLinks(result.roomId, judgeCount),
+              ...(result.created && result.credentials ? { credentials: result.credentials } : {}) });
           } catch (error) {
-            console.error('LOCAL_DEMO_API_ERROR', error.code || error.message.split(';')[0]);
+            if (error.code === 'DEMO_AUTHORIZATION_DENIED') return reply(403, { ok: false, code: 'DEMO_AUTHORIZATION_DENIED' });
+            console.error('LOCAL_DEMO_API_ERROR');
             const retry = /retry: node scripts\/createLocalDemo.js (demo-patterns-[a-f0-9]{24})/.exec(error.message);
             return reply(503, { ok: false, code: 'DEMO_UNAVAILABLE', ...(retry ? { roomId: retry[1] } : {}) });
           }
@@ -86,10 +91,16 @@ export function devPresidentPlugin(env, { demoAccessFn = demoAccess, demoTokenFn
         }
         if (isToken && req.method === 'POST') {
           try {
-            const token = demo ? await demoTokenFn(demo[1], key) : await devToken(key);
+            const credential = demoCredential(req);
+            if (demo && !credential) throw authorizationDenied();
+            const token = demo ? await demoTokenFn(demo[1], key, credential) : await devToken(key);
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({ token }));
           } catch (error) {
+            if (error.code === 'DEMO_AUTHORIZATION_DENIED') {
+              res.statusCode = 403;
+              return res.end('DEMO_AUTHORIZATION_DENIED');
+            }
             res.statusCode = 503;
             return res.end(demo ? 'DEMO identity unavailable; retry local provisioning for this room'
               : error.code === 'auth/user-not-found'
