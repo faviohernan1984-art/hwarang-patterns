@@ -123,9 +123,11 @@ export async function readLocalDemoAccess(admin, roomId, key, { env = process.en
 }
 
 export async function issueLocalDemoToken(admin, roomId, key, options) {
-  await authorizeLocalDemo(admin.db, roomId, key, options?.credential, options);
+  const versions = await authorizeLocalDemo(admin.db, roomId, key, options?.credential, options);
   const identity = await readLocalDemoAccess(admin, roomId, key, options);
-  return admin.auth.createCustomToken(identity.uid);
+  // Versions belong to this login only. Persistent versions would let older
+  // sessions acquire newer authorization on refresh.
+  return admin.auth.createCustomToken(identity.uid, { ...identity.claims, ...versions });
 }
 
 // Shared DEV server Admin instance; requests never provision or mutate identities.

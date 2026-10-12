@@ -65,7 +65,7 @@ function fixture() {
       users.get(uid).customClaims = structuredClone(claims); authWrites += 1;
       if (failClaimUid === uid) { failClaimUid = null; throw new Error('CLAIM_RESPONSE_LOST'); }
     },
-    async createCustomToken(uid) { tokens += 1; return JSON.stringify({ uid, claims: users.get(uid).customClaims }); },
+    async createCustomToken(uid, claims) { tokens += 1; return JSON.stringify({ uid, claims: { ...users.get(uid).customClaims, ...claims } }); },
   };
   return {
     admin: { db, auth }, documents, users,
@@ -350,4 +350,60 @@ test('DEV browser login uses the selected room while preserving Room A fallback 
   const existing = await runDevLogin({ key: 'president', role: 'president' }, { roomId: 'A', role: 'president' });
   assert.deepEqual(existing.assigned, ['/rooms/A/president']);
   assert.deepEqual(existing.requests, ['/__dev/president/token']);
+});
+
+
+test('every DEMO token preserves claims and verified versions without promoting refresh claims', async () => {
+  for (const count of [3, 5]) {
+    const f = fixture(); f.seed(room('a'), count); await provision(f, room('a'));
+    const data = f.documents.get('localDemoAuthorization/' + room('a'));
+    data.roomAccessVersion = 7;
+    const before = structuredClone(f.users); const writes = [f.authWrites, f.dbWrites];
+    for (const [index, [key, identity]] of Object.entries(demoIdentities(room('a'), count)).entries()) {
+      data.roles[key].accessVersion = index + 2;
+      assert.deepEqual(JSON.parse(await token(f, room('a'), key)), {
+        uid: identity.uid, claims: { ...identity.claims, roomAccessVersion: 7, accessVersion: index + 2 },
+      });
+    }
+    assert.deepEqual(f.users, before); assert.deepEqual([f.authWrites, f.dbWrites], writes);
+  }
+});
+
+test('every DEMO issuer rejects absent, invalid and unsafe versions before issuing tokens', async () => {
+  const f = fixture(); f.seed(room('a'), 5); await provision(f, room('a'));
+  const before = structuredClone(f.users); const writes = [f.authWrites, f.dbWrites];
+  const data = f.documents.get('localDemoAuthorization/' + room('a'));
+  for (const key of Object.keys(demoIdentities(room('a'), 5))) {
+    for (const field of ['roomAccessVersion', 'accessVersion']) {
+      const target = field === 'roomAccessVersion' ? data : data.roles[key];
+      for (const value of [undefined, null, 0, -1, 1.5, '1', true, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+        if (value === undefined) delete target[field]; else target[field] = value;
+        await assert.rejects(token(f, room('a'), key), /AUTHORIZATION_DENIED/);
+      }
+      target[field] = 1;
+    }
+  }
+  assert.equal(f.tokens, 0); assert.deepEqual(f.users, before);
+  assert.deepEqual([f.authWrites, f.dbWrites], writes);
+});
+
+test('revocation and reprovisioning deny tokens; later logins cannot upgrade older sessions via persistent claims', async () => {
+  for (const revokeRoom of [false, true]) {
+    const f = fixture(); f.seed(room('a')); await provision(f, room('a'));
+    const key = 'judge/1';
+    const first = JSON.parse(await token(f, room('a'), key));
+    const before = structuredClone(f.users); const writes = f.authWrites;
+    const data = f.documents.get('localDemoAuthorization/' + room('a'));
+    data.roles[key].active = false;
+    if (revokeRoom) data.roomAccessVersion++; else data.roles[key].accessVersion++;
+    await assert.rejects(token(f, room('a'), key), /AUTHORIZATION_DENIED/);
+    await provision(f, room('a'));
+    await assert.rejects(token(f, room('a'), key), /AUTHORIZATION_DENIED/);
+    data.roles[key].active = true;
+    const next = JSON.parse(await token(f, room('a'), key));
+    const field = revokeRoom ? 'roomAccessVersion' : 'accessVersion';
+    assert.equal(first.claims[field], 1); assert.equal(next.claims[field], 2);
+    assert.deepEqual(f.users, before); assert.equal(f.authWrites, writes);
+    assert.equal(f.users.get(first.uid).customClaims[field], undefined);
+  }
 });
