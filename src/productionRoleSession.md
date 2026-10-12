@@ -30,6 +30,14 @@ Este cambio no crea usuarios, asigna claims ni activa contraseñas. Las cuatro
 cuentas nuevas del provisioning multirol necesitan activación privada antes de
 entrar. La versión ya publicada sigue sin cambios hasta un despliegue autorizado.
 
+En producción, «Olvidé mi contraseña» solicita un correo de restablecimiento a
+Firebase Auth usando solo el email del formulario, sin exigir la contraseña
+anterior. La respuesta es idéntica ante éxito, cuenta inexistente o error del SDK;
+no confirma la existencia de una cuenta ni la entrega del correo. No crea cuentas,
+cambia claims ni altera la sesión actual. Usa el flujo de acción de email
+configurado en Firebase, sin URL de retorno aportada por el usuario. Las pruebas
+usan dobles y nunca envían correos reales.
+
 Pruebas offline:
 
 ```text
