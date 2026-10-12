@@ -73,7 +73,7 @@ function fixture() {
     failCreate(uid) { failCreateUid = uid; }, failClaim(uid, after = false) { failClaimUid = uid; failClaimAfter = after; },
     failComplete() { failComplete = true; },
     seed(roomId, judges = 3) {
-      documents.set('localDemoAuthorization/' + roomId, { version: 1, roles: Object.fromEntries(Object.keys(demoIdentities(roomId, 5)).map(key => [key, { hash: credentialHash, active: true }])) });
+      documents.set('localDemoAuthorization/' + roomId, { version: 1, roomAccessVersion: 1, roles: Object.fromEntries(Object.keys(demoIdentities(roomId, 5)).map(key => [key, { hash: credentialHash, active: true, accessVersion: 1 }])) });
       const [control, meta, publicState] = initialRoomDocuments();
       control.config.patternJudges = judges;
       const demoSessionId = 'patterns-session-' + roomId.slice('demo-patterns-'.length);

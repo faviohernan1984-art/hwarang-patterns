@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { createLocalDemoAuthorization, authorizeLocalDemo } from './localDemoAuthorization.js';
+import { createLocalDemoAuthorization, authorizeLocalDemo, initializeLocalDemoAuthorizationVersions, revokeLocalDemoAuthorization } from './localDemoAuthorization.js';
 import { issueLocalDemoToken, demoIdentities } from './localDemoIdentities.js';
 import { createLocalDemo } from './createLocalDemo.js';
 import { devPresidentPlugin } from './devPresidentPlugin.js';
@@ -18,6 +18,7 @@ function database() {
     doc: path => ({ path, get: async () => snapshot(path) }),
     runTransaction: async callback => callback({
       get: async ref => snapshot(ref.path),
+      update(ref, patch) { assert.equal(documents.has(ref.path), true); documents.set(ref.path, { ...documents.get(ref.path), ...structuredClone(patch) }); writes++; },
       create(ref, data) { assert.equal(documents.has(ref.path), false); documents.set(ref.path, structuredClone(data)); writes++; },
     }),
   };
@@ -88,4 +89,119 @@ test('both HTTP issuers and recovery enforce Bearer credentials and never put se
   assert.equal((await request('/api/create-demo', credentials.president, JSON.stringify({ roomId: room }))).status, 200);
   assert.equal(tokens, keys.length * 2); assert.equal(recoveries, 1);
   assert.equal((await request('/api/demo-access/' + room + '/president?credential=' + credentials.president)).status, 403);
+});
+
+
+test('new grants initialize versions and authorization returns the verified pair', async () => {
+  const f = database(); const credentials = await createLocalDemoAuthorization(f.db, room, keys, { env });
+  for (const key of keys) assert.deepEqual(await authorizeLocalDemo(f.db, room, key, credentials[key], { env }), { roomAccessVersion: 1, accessVersion: 1 });
+});
+
+test('authorization rejects absent, malformed and unsafe versions without writes', async () => {
+  for (const field of ['roomAccessVersion', 'accessVersion']) {
+    for (const value of [undefined, null, 0, -1, 1.5, '1', true, Number.MAX_SAFE_INTEGER + 1]) {
+      const f = database(); const credentials = await createLocalDemoAuthorization(f.db, room, keys, { env });
+      const data = f.documents.get('localDemoAuthorization/' + room);
+      const target = field === 'roomAccessVersion' ? data : data.roles.president;
+      if (value === undefined) delete target[field]; else target[field] = value;
+      await assert.rejects(authorizeLocalDemo(f.db, room, 'president', credentials.president, { env }), /AUTHORIZATION_DENIED/);
+      assert.equal(f.writes, 1);
+    }
+  }
+});
+
+test('explicit migration preserves hashes, inactive grants, existing versions and sports data; is idempotent', async () => {
+  const f = database(); const credentials = await createLocalDemoAuthorization(f.db, room, keys, { env });
+  const data = f.documents.get('localDemoAuthorization/' + room);
+  delete data.roomAccessVersion;
+  delete data.roles.president.accessVersion;
+  data.roles.public.accessVersion = 7; data.roles.public.active = false;
+  data.extra = { retained: true };
+  f.documents.set('rooms/' + room + '/control/current', { evaluationId: 9 });
+  f.documents.set('rooms/' + room + '/demoSessions/session', { confirmedCount: 17 });
+  const before = structuredClone([...f.documents]);
+  await initializeLocalDemoAuthorizationVersions(f.db, room, { env });
+  const expected = new Map(before); const migrated = expected.get('localDemoAuthorization/' + room);
+  migrated.roomAccessVersion = 1; migrated.roles.president.accessVersion = 1;
+  assert.deepEqual([...f.documents], [...expected]);
+  const writes = f.writes;
+  await initializeLocalDemoAuthorizationVersions(f.db, room, { env });
+  assert.equal(f.writes, writes);
+  await authorizeLocalDemo(f.db, room, 'president', credentials.president, { env });
+  await assert.rejects(authorizeLocalDemo(f.db, room, 'public', credentials.public, { env }), /AUTHORIZATION_DENIED/);
+});
+
+test('role revocation increments monotonically, preserves other grants and isolates rooms', async () => {
+  const f = database(); const credentials = await createLocalDemoAuthorization(f.db, room, keys, { env });
+  await createLocalDemoAuthorization(f.db, other, keys, { env });
+  const before = structuredClone([...f.documents]);
+  assert.deepEqual(await revokeLocalDemoAuthorization(f.db, room, 'judge/1', { env }), { roomAccessVersion: 1, accessVersion: 2 });
+  const expected = new Map(before); const grant = expected.get('localDemoAuthorization/' + room).roles['judge/1'];
+  grant.active = false; grant.accessVersion = 2;
+  assert.deepEqual([...f.documents], [...expected]);
+  await assert.rejects(authorizeLocalDemo(f.db, room, 'judge/1', credentials['judge/1'], { env }), /AUTHORIZATION_DENIED/);
+  await authorizeLocalDemo(f.db, room, 'judge/2', credentials['judge/2'], { env });
+  assert.equal((await revokeLocalDemoAuthorization(f.db, room, 'judge/1', { env })).accessVersion, 3);
+});
+
+test('room revocation increments only room version and disables every grant without changing hashes', async () => {
+  const f = database(); const credentials = await createLocalDemoAuthorization(f.db, room, keys, { env });
+  const before = structuredClone(f.documents.get('localDemoAuthorization/' + room));
+  assert.deepEqual(await revokeLocalDemoAuthorization(f.db, room, null, { env }), { roomAccessVersion: 2 });
+  before.roomAccessVersion = 2;
+  for (const key of keys) {
+    before.roles[key].active = false;
+    await assert.rejects(authorizeLocalDemo(f.db, room, key, credentials[key], { env }), /AUTHORIZATION_DENIED/);
+  }
+  assert.deepEqual(f.documents.get('localDemoAuthorization/' + room), before);
+});
+
+test('migration and revocation reject missing or corrupt records without writes', async () => {
+  for (const mutate of [
+    data => { data.roomAccessVersion = null; },
+    data => { data.roles.public.accessVersion = 0; },
+    data => { data.roles.public.hash = 'invalid'; },
+    data => { data.roles.public.active = 'true'; },
+    data => { delete data.roles.president; },
+    data => { data.version = 2; },
+  ]) {
+    const f = database(); await createLocalDemoAuthorization(f.db, room, keys, { env });
+    mutate(f.documents.get('localDemoAuthorization/' + room));
+    const before = structuredClone([...f.documents]);
+    for (const action of [initializeLocalDemoAuthorizationVersions, (db, id, options) => revokeLocalDemoAuthorization(db, id, null, options)]) {
+      await assert.rejects(action(f.db, room, { env }), /AUTHORIZATION_DENIED/);
+      assert.deepEqual([...f.documents], before);
+    }
+    assert.equal(f.writes, 1);
+  }
+  const f = database();
+  await assert.rejects(initializeLocalDemoAuthorizationVersions(f.db, room, { env }), /AUTHORIZATION_DENIED/);
+  await assert.rejects(revokeLocalDemoAuthorization(f.db, room, null, { env }), /AUTHORIZATION_DENIED/);
+  await createLocalDemoAuthorization(f.db, room, keys, { env });
+  for (const key of ['judge/4', 'judge/6', '', 1]) await assert.rejects(revokeLocalDemoAuthorization(f.db, room, key, { env }), /AUTHORIZATION_DENIED/);
+  const data = f.documents.get('localDemoAuthorization/' + room);
+  data.roomAccessVersion = Number.MAX_SAFE_INTEGER;
+  data.roles.public.accessVersion = Number.MAX_SAFE_INTEGER;
+  await assert.rejects(revokeLocalDemoAuthorization(f.db, room, null, { env }), /AUTHORIZATION_DENIED/);
+  await assert.rejects(revokeLocalDemoAuthorization(f.db, room, 'public', { env }), /AUTHORIZATION_DENIED/);
+  assert.equal(f.writes, 1);
+});
+
+test('transaction retry uses the latest version and retains concurrent grant changes', async () => {
+  const f = database(); await createLocalDemoAuthorization(f.db, room, keys, { env });
+  const run = f.db.runTransaction;
+  let first = true;
+  f.db.runTransaction = async callback => {
+    if (first) {
+      first = false;
+      await callback({ get: async ref => ref.get(), update() {} });
+      const data = f.documents.get('localDemoAuthorization/' + room);
+      data.roles['judge/1'].accessVersion = 4;
+      data.roles.public.accessVersion = 8;
+    }
+    return run(callback);
+  };
+  assert.deepEqual(await revokeLocalDemoAuthorization(f.db, room, 'judge/1', { env }), { roomAccessVersion: 1, accessVersion: 5 });
+  assert.equal(f.documents.get('localDemoAuthorization/' + room).roles.public.accessVersion, 8);
+  assert.equal(f.writes, 2);
 });
