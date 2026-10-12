@@ -74,11 +74,48 @@ service cloud.firestore {
       return roomId.matches('^[A-Za-z0-9_-]{1,64}$');
     }
 
+    // DEMO authorization is server-managed; clients have no access to its records.
+    function validDemoAccessVersion(value) {
+      return value is int && value >= 1 && value <= 9007199254740991;
+    }
+
+    function demoRoleKey() {
+      let role = request.auth.token.role;
+      let judgeId = request.auth.token.get("judgeId", null);
+      return role != "judge" ? role
+        : judgeId == 1 ? "judge/1"
+        : judgeId == 2 ? "judge/2"
+        : judgeId == 3 ? "judge/3"
+        : judgeId == 4 ? "judge/4" : "judge/5";
+    }
+
+    function validDemoAuthorization(roomId) {
+      let path = /databases/$(database)/documents/localDemoAuthorization/$(roomId);
+      let token = request.auth.token;
+      return validDemoAccessVersion(token.get("roomAccessVersion", null))
+        && validDemoAccessVersion(token.get("accessVersion", null))
+        && (token.role != "judge"
+          || (token.get("judgeId", null) is int && token.judgeId in [1, 2, 3, 4, 5]))
+        && exists(path)
+        && validDemoGrant(get(path).data, demoRoleKey());
+    }
+
+    function validDemoGrant(authorization, key) {
+      let grant = authorization.get("roles", {}).get(key, {});
+      return authorization.get("version", null) == 1
+        && grant.get("active", false) == true
+        && validDemoAccessVersion(authorization.get("roomAccessVersion", null))
+        && validDemoAccessVersion(grant.get("accessVersion", null))
+        && request.auth.token.roomAccessVersion == authorization.roomAccessVersion
+        && request.auth.token.accessVersion == grant.accessVersion;
+    }
+
     function assignedToPatternsRoom(roomId) {
       return signedIn()
         && request.auth.token.roomId is string
         && request.auth.token.roomId == roomId
-        && request.auth.token.role in ["president", "public", "judge"];
+        && request.auth.token.role in ["president", "public", "judge"]
+        && (!roomId.matches('^demo-patterns-.*$') || validDemoAuthorization(roomId));
     }
 
     function isPatternsPresident(roomId) {
