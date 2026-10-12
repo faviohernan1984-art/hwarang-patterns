@@ -1,20 +1,29 @@
 # Login productivo por claims
 
 En producción, `/login` usa Firebase Auth con email y contraseña para Presidente,
-Público y jueces 1–3. No hay selector de sala, rol ni juez. Después del login se
+Público y jueces 1–3 o 1–5 según la configuración de sala. No hay selector de sala, rol ni juez. Después del login se
 solicita un ID token fresco a Firebase Auth y se deriva el destino de sus claims:
 
 | Claims | Destino |
 | --- | --- |
 | `roomId`, `role: president` | `/rooms/{roomId}/president` |
 | `roomId`, `role: public` | `/rooms/{roomId}/public` |
-| `roomId`, `role: judge`, `judgeId: 1..3` numérico | `/rooms/{roomId}/judge/{judgeId}` |
+| `roomId`, `role: judge`, `judgeId: 1..5` numérico, habilitado en sala | `/rooms/{roomId}/judge/{judgeId}` |
 
 El proyecto/app debe coincidir con el contrato productivo aprobado, sin Emulator.
 Se rechazan salas inválidas, claims adicionales ajenos al contrato, asignaciones
 legacy o DEMO y `judgeId` presente en Presidente/Público. Los campos estándar de
 Firebase Auth están admitidos. Los claims nunca se obtienen de query strings,
 formularios de rol, localStorage ni tokens aportados manualmente.
+
+Para un juez se consulta `control/current` con `getDocFromServer`, usando la app
+Auth aprobada y el `roomId` de sus claims. Solo se admite cantidad 3 o 5, sin
+fallback a caché ni opciones del llamador. Una configuración ausente, inválida o
+inaccesible cierra la sesión. Presidente y Público conservan el flujo anterior.
+Las reglas profesionales consultan la misma configuración en todas las lecturas
+y escrituras: al pasar a tres, los tokens existentes de 4/5 pierden permisos sin
+eliminar sus cuentas. Al volver a cinco recuperan acceso. DEMO mantiene su flujo
+de autorización separado. Este bloqueo requiere publicar las reglas actualizadas.
 
 Un login nuevo cierra la sesión anterior. Los errores de entorno, persistencia,
 autenticación, obtención de token o claims intentan cerrar la sesión y no devuelven
@@ -26,7 +35,7 @@ formulario sigue llamando al flujo original `loginPresident`; el circuito DEMO,
 sus credenciales y sus emisores no se modifican. `/logout` conserva el cierre de
 sesión existente. Las reglas Firestore siguen siendo la autoridad sobre datos.
 
-Este cambio no crea usuarios, asigna claims ni activa contraseñas. Las cuatro
+Este cambio no crea usuarios, asigna claims ni activa contraseñas. Las cuatro o seis
 cuentas nuevas del provisioning multirol necesitan activación privada antes de
 entrar. La versión ya publicada sigue sin cambios hasta un despliegue autorizado.
 

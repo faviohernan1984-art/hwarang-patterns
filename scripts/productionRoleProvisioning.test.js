@@ -75,7 +75,7 @@ function fixture() {
     run: value => provisionProductionRolesWithAdmin(value ?? input, { auth, db, projectId: PRODUCTION_PROJECT_ID }) };
 }
 
-test('CLI and manifest require explicit project, apply, room A and exactly four distinct roles', () => {
+test('CLI and manifest require explicit project, apply, room A and exactly three or five distinct judges plus Public', () => {
   const args = ['--apply', '--project', PRODUCTION_PROJECT_ID, '--room', 'A'];
   assert.deepEqual(parseProductionRoleArgs(args), { projectId: PRODUCTION_PROJECT_ID, apply: true, roomId: 'A' });
   for (const bad of [[], args.slice(1), [...args, '--force']]) assert.throws(() => parseProductionRoleArgs(bad));
@@ -203,4 +203,69 @@ test('concurrent manifests cannot reserve the same role for different users', as
   assert.equal(f.documents.get('_roomRoleProvisioning/A').status, 'complete');
   const publicUsers = [...f.users.values()].filter(user => user.customClaims?.role === 'public');
   assert.equal(publicUsers.length, 1);
+});
+
+const fiveInput = { ...input, roles: { ...input.roles, 'judge/4': 'judge-4@patterns.test', 'judge/5': 'judge-5@patterns.test' } };
+
+test('five-judge provisioning creates six roles and repeats without changing any account', async () => {
+  const f = fixture(); f.documents.get('rooms/A/control/current').config.patternJudges = 5;
+  const before = structuredClone([...f.documents]);
+  assert.deepEqual(await f.run(fiveInput), { ok: true, roomId: 'A', roleCount: 6, created: 6, assigned: 6 });
+  const plan = f.documents.get('_roomRoleProvisioning/A');
+  assert.equal(plan.version, 2); assert.equal(plan.judgeCount, 5);
+  for (const key of Object.keys(fiveInput.roles)) assert.deepEqual(f.users.get(plan.roles[key].uid).customClaims, claimsFor(key));
+  const users = structuredClone([...f.users]); const writes = f.writes;
+  assert.deepEqual(await f.run(fiveInput), { ok: true, roomId: 'A', roleCount: 6, created: 0, assigned: 0 });
+  assert.deepEqual([...f.users], users); assert.equal(f.writes, writes);
+  for (const [path, data] of before) assert.deepEqual(f.documents.get(path), data);
+});
+
+test('legacy three-judge journals upgrade and transition 3 to 5 to 3 to 5 preserving UIDs, President and Public', async () => {
+  const f = fixture(); await f.run();
+  const plan = f.documents.get('_roomRoleProvisioning/A'); plan.version = 1; delete plan.judgeCount;
+  const firstUsers = structuredClone([...f.users]);
+  await f.run(); assert.equal(f.documents.get('_roomRoleProvisioning/A').version, 2);
+  assert.deepEqual([...f.users], firstUsers);
+  f.documents.get('rooms/A/control/current').config.patternJudges = 5;
+  assert.deepEqual(await f.run(fiveInput), { ok: true, roomId: 'A', roleCount: 6, created: 2, assigned: 2 });
+  const allUsers = structuredClone([...f.users]); const reservations = structuredClone(f.documents.get('_roomRoleProvisioning/A').roles);
+  f.documents.get('rooms/A/control/current').config.patternJudges = 3;
+  assert.deepEqual(await f.run(), { ok: true, roomId: 'A', roleCount: 4, created: 0, assigned: 0 });
+  assert.deepEqual([...f.users], allUsers);
+  assert.deepEqual(f.documents.get('_roomRoleProvisioning/A').roles, reservations);
+  assert.equal(f.documents.get('_roomRoleProvisioning/A').judgeCount, 3);
+  const writes = f.writes; await f.run(); assert.equal(f.writes, writes);
+  f.documents.get('rooms/A/control/current').config.patternJudges = 5;
+  assert.deepEqual(await f.run(fiveInput), { ok: true, roomId: 'A', roleCount: 6, created: 0, assigned: 0 });
+  assert.deepEqual([...f.users], allUsers);
+  assert.deepEqual(f.documents.get('_roomRoleProvisioning/A').roles, reservations);
+});
+
+test('legacy pending journals resume; partial expansion blocks downgrade until complete and retries safely', async () => {
+  const f = fixture(); f.failures.claimsBefore = true; await assert.rejects(f.run());
+  const plan = f.documents.get('_roomRoleProvisioning/A'); plan.version = 1; delete plan.judgeCount;
+  await f.run();
+  f.documents.get('rooms/A/control/current').config.patternJudges = 5;
+  f.failures.createAfter = true; await assert.rejects(f.run(fiveInput));
+  assert.equal(f.documents.get('_roomRoleProvisioning/A').judgeCount, 5);
+  f.documents.get('rooms/A/control/current').config.patternJudges = 3;
+  await assert.rejects(f.run(), /ROLE_PLAN_CONFLICT/);
+  f.documents.get('rooms/A/control/current').config.patternJudges = 5;
+  await f.run(fiveInput); assert.equal(f.creations, 6);
+});
+
+test('configuration mismatch, altered dormant roles and changed manifest identities fail safely', async () => {
+  const fresh = fixture(); await assert.rejects(fresh.run(fiveInput), /UNVERIFIED_HTI_ROOM/);
+  assert.equal(fresh.writes, 0); assert.equal(fresh.creations, 0);
+  for (const corrupt of ['user', 'reservation', 'manifest']) {
+    const f = fixture(); f.documents.get('rooms/A/control/current').config.patternJudges = 5; await f.run(fiveInput);
+    const uid = f.documents.get('_roomRoleProvisioning/A').roles['judge/5'].uid;
+    const assignments = f.assignments; const writes = f.writes;
+    f.documents.get('rooms/A/control/current').config.patternJudges = 3;
+    if (corrupt === 'user') f.users.get(uid).customClaims.roomId = 'B';
+    if (corrupt === 'reservation') f.documents.delete('_roleAssignments/' + hash(uid));
+    if (corrupt === 'manifest') { f.documents.get('rooms/A/control/current').config.patternJudges = 5; }
+    await assert.rejects(f.run(corrupt === 'manifest' ? { ...fiveInput, roles: { ...fiveInput.roles, 'judge/5': 'replacement@patterns.test' } } : input));
+    assert.equal(f.assignments, assignments); assert.equal(f.writes, writes);
+  }
 });

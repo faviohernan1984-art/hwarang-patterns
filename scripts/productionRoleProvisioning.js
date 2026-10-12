@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { PRODUCTION_PROJECT_ID } from './productionAdmin.js';
 import { validateProvisionInput } from './presidentProvisioning.js';
 
-const KEYS = ['public', 'judge/1', 'judge/2', 'judge/3'];
+const keysFor = count => ['public', ...Array.from({ length: count }, (_, i) => 'judge/' + (i + 1))];
 const hash = value => createHash('sha256').update(value).digest('hex');
 const reject = code => { throw new Error(code); };
 const requireValue = (value, code) => { if (!value) reject(code); };
@@ -16,7 +16,9 @@ export function validateProductionRoleInput(input) {
   requireValue(input && Object.keys(input).every(key => ['projectId', 'roomId', 'roles'].includes(key)), 'INVALID_ROLE_INPUT');
   requireValue(input.projectId === PRODUCTION_PROJECT_ID, 'PRODUCTION_PROJECT_NOT_APPROVED');
   requireValue(input.roomId === 'A', 'HTI_ROOM_A_REQUIRED');
-  requireValue(input.roles && typeof input.roles === 'object' && !Array.isArray(input.roles)
+  requireValue(input.roles && typeof input.roles === 'object' && !Array.isArray(input.roles), 'EXACT_HTI_ROLES_REQUIRED');
+  const KEYS = keysFor(Object.keys(input.roles).length - 1);
+  requireValue([4, 6].includes(KEYS.length)
     && isDeepStrictEqual(Object.keys(input.roles).sort(), [...KEYS].sort()), 'EXACT_HTI_ROLES_REQUIRED');
   const roles = Object.fromEntries(KEYS.map(key => [key, validateProvisionInput({ roomId: 'A', email: input.roles[key] }).email]));
   requireValue(new Set(Object.values(roles)).size === KEYS.length, 'DUPLICATE_ROLE_EMAIL');
@@ -41,6 +43,8 @@ function checkUser(user, entry, key, allowPending) {
 // Strict reservations cover this tool's concurrent runs. Other Admin writers must serialize.
 export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, projectId }) {
   const input = validateProductionRoleInput(rawInput);
+  const KEYS = Object.keys(input.roles);
+  const judgeCount = KEYS.length - 1;
   requireValue(projectId === input.projectId && db.projectId === projectId && auth.app?.options?.projectId === projectId, 'UNVERIFIED_PRODUCTION_ADMIN');
   const roomRefs = ['control', 'meta', 'publicState'].map(name => db.doc('rooms/A/' + name + '/current'));
   const ownerRef = db.doc('_roomProvisioning/A');
@@ -48,7 +52,7 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
   const [owner, plan, ...room] = await db.getAll(ownerRef, planRef, ...roomRefs);
   requireValue(owner.exists && owner.data().version === 1 && owner.data().status === 'complete'
     && typeof owner.data().uid === 'string' && room.every(value => value.exists)
-    && room[0].data().config?.patternJudges === 3, 'UNVERIFIED_HTI_ROOM');
+    && room[0].data().config?.patternJudges === judgeCount, 'UNVERIFIED_HTI_ROOM');
   const presidentUid = owner.data().uid;
   const president = await auth.getUser(presidentUid);
   const presidentClaims = { roomId: 'A', role: 'president' };
@@ -58,25 +62,41 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
   requireValue(presidentAssignment.exists && isDeepStrictEqual(presidentAssignment.data(), presidentClaims), 'PRESIDENT_ASSIGNMENT_CONFLICT');
   const previous = plan.exists ? plan.data() : null;
   if (previous) {
-    requireValue(previous.version === 1 && previous.roomId === 'A' && previous.presidentUid === presidentUid
+    const reservedCount = Object.keys(previous.roles ?? {}).length - 1;
+    requireValue([1, 2].includes(previous.version) && previous.roomId === 'A' && previous.presidentUid === presidentUid
       && ['pending', 'complete'].includes(previous.status)
-      && isDeepStrictEqual(Object.keys(previous.roles ?? {}).sort(), [...KEYS].sort()), 'ROLE_PLAN_CONFLICT');
+      && [3, 5].includes(reservedCount)
+      && isDeepStrictEqual(Object.keys(previous.roles).sort(), keysFor(reservedCount).sort())
+      && (previous.version === 1 ? reservedCount === 3 : [3, 5].includes(previous.judgeCount) && previous.judgeCount <= reservedCount)
+      && (previous.status !== 'pending' || (previous.judgeCount ?? 3) === judgeCount), 'ROLE_PLAN_CONFLICT');
+    requireValue(Object.values(previous.roles).every(entry => entry && typeof entry.uid === 'string'
+      && /^[a-f0-9]{64}$/.test(entry.emailHash)), 'ROLE_PLAN_CONFLICT');
   }
   const entries = {};
   for (const key of KEYS) {
     const email = input.roles[key];
     const byEmail = await optionalUser(() => auth.getUserByEmail(email));
     const reserved = previous?.roles[key];
-    if (previous) requireValue(reserved && reserved.emailHash === hash(email) && typeof reserved.uid === 'string', 'ROLE_PLAN_CONFLICT');
+    if (reserved) requireValue(reserved.emailHash === hash(email), 'ROLE_PLAN_CONFLICT');
     const uid = reserved?.uid ?? byEmail?.uid ?? uidFor(key, email);
     requireValue(uid !== presidentUid && (!byEmail || byEmail.uid === uid), 'ROLE_USER_CONFLICT');
     const user = await optionalUser(() => auth.getUser(uid));
     // A completed plan never recreates a deleted account. Pending plans may resume creation.
-    requireValue(user || previous?.status !== 'complete', 'ROLE_USER_MISSING');
+    requireValue(user || !reserved || previous?.status !== 'complete', 'ROLE_USER_MISSING');
     entries[key] = { uid, email };
-    if (user) checkUser(user, entries[key], key, previous?.status === 'pending');
+    if (user) checkUser(user, entries[key], key, !!reserved && previous?.status === 'pending');
   }
-  requireValue(new Set(Object.values(entries).map(entry => entry.uid)).size === KEYS.length, 'DUPLICATE_ROLE_UID');
+  // Downgrades retain reservations and identities for judges 4/5, never erase claims.
+  for (const [key, reserved] of Object.entries(previous?.roles ?? {})) {
+    if (entries[key]) continue;
+    const user = await auth.getUser(reserved.uid);
+    requireValue(typeof user.email === 'string' && hash(user.email.toLowerCase()) === reserved.emailHash, 'ROLE_USER_CONFLICT');
+    entries[key] = { uid: reserved.uid, email: user.email.toLowerCase() };
+    checkUser(user, entries[key], key, false);
+  }
+  const allKeys = Object.keys(entries);
+  requireValue(Object.values(entries).every(entry => entry.uid !== presidentUid)
+    && new Set(Object.values(entries).map(entry => entry.uid)).size === allKeys.length, 'DUPLICATE_ROLE_UID');
 
   async function checkAssignments() {
     let pageToken;
@@ -99,29 +119,30 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
     } while (pageToken);
   }
   await checkAssignments();
-  const assignmentRefs = KEYS.map(key => db.doc('_roleAssignments/' + hash(entries[key].uid)));
-  const priorPresidentRefs = KEYS.map(key => db.doc('_presidentAssignments/' + hash(entries[key].uid)));
-  const proposed = { version: 1, roomId: 'A', presidentUid, status: 'pending',
-    roles: Object.fromEntries(KEYS.map(key => [key, { uid: entries[key].uid, emailHash: hash(entries[key].email) }])) };
+  const assignmentRefs = allKeys.map(key => db.doc('_roleAssignments/' + hash(entries[key].uid)));
+  const priorPresidentRefs = allKeys.map(key => db.doc('_presidentAssignments/' + hash(entries[key].uid)));
+  const proposed = { version: 2, roomId: 'A', presidentUid, judgeCount, status: 'pending',
+    roles: Object.fromEntries(allKeys.map(key => [key, { uid: entries[key].uid, emailHash: hash(entries[key].email) }])) };
   const matchesPlan = current => current && ['pending', 'complete'].includes(current.status)
     && isDeepStrictEqual({ ...current, status: 'pending' }, proposed);
   function checkRoom(values) {
     requireValue(isDeepStrictEqual(values[0].data(), owner.data()) && values[0].exists
       && values.slice(1, 4).every(value => value.exists)
-      && values[1].data().config?.patternJudges === 3
+      && values[1].data().config?.patternJudges === judgeCount
       && values[4].exists && isDeepStrictEqual(values[4].data(), presidentClaims), 'ROOM_CHANGED');
   }
   await db.runTransaction(async tx => {
     const values = await tx.getAll(ownerRef, ...roomRefs, presidentAssignmentRef, planRef, ...assignmentRefs, ...priorPresidentRefs);
     checkRoom(values);
     const current = values[5].exists ? values[5].data() : null;
-    requireValue(current === null || matchesPlan(current), 'ROLE_PLAN_CONFLICT');
-    requireValue(values.slice(10).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
+    requireValue((!current && !previous) || (current && isDeepStrictEqual(current, previous)) || matchesPlan(current), 'ROLE_PLAN_CONFLICT');
+    requireValue(values.slice(6 + allKeys.length).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
     // Validate every reservation before scheduling any writes.
-    KEYS.forEach((key, i) => requireValue((!current && !values[6 + i].exists)
+    allKeys.forEach((key, i) => requireValue((!current?.roles[key] && !values[6 + i].exists)
       || (values[6 + i].exists && isDeepStrictEqual(values[6 + i].data(), claimsFor(key))), 'ROLE_RESERVATION_CONFLICT'));
     if (!values[5].exists) tx.create(planRef, proposed);
-    KEYS.forEach((key, i) => { if (!values[6 + i].exists) tx.create(assignmentRefs[i], claimsFor(key)); });
+    else if (!matchesPlan(current)) tx.update(planRef, proposed);
+    allKeys.forEach((key, i) => { if (!values[6 + i].exists) tx.create(assignmentRefs[i], claimsFor(key)); });
   });
   let created = 0;
   let assigned = 0;
@@ -131,7 +152,7 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
     requireValue(!ownerNow.disabled && isDeepStrictEqual(ownerNow.customClaims, presidentClaims), 'PRESIDENT_ASSIGNMENT_CONFLICT');
     let user = await optionalUser(() => auth.getUser(entries[key].uid));
     if (!user) {
-      requireValue(previous?.status !== 'complete', 'ROLE_USER_MISSING');
+      requireValue(!previous?.roles[key] || previous.status !== 'complete', 'ROLE_USER_MISSING');
       try {
         user = await auth.createUser({ uid: entries[key].uid, email: entries[key].email, displayName: marker(key) });
         created++;
@@ -140,14 +161,14 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
         user = await auth.getUser(entries[key].uid);
       }
     }
-    if (!checkUser(user, entries[key], key, previous?.status !== 'complete')) {
+    if (!checkUser(user, entries[key], key, !previous?.roles[key] || previous.status !== 'complete')) {
       // Revalidate Room ownership and reservations immediately before granting authority.
       await db.runTransaction(async tx => {
         const values = await tx.getAll(ownerRef, ...roomRefs, presidentAssignmentRef, planRef, ...assignmentRefs, ...priorPresidentRefs);
         checkRoom(values);
         requireValue(values[5].exists && matchesPlan(values[5].data()), 'ROLE_PLAN_CONFLICT');
-        requireValue(values.slice(10).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
-        KEYS.forEach((key, i) => requireValue(values[6 + i].exists
+        requireValue(values.slice(6 + allKeys.length).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
+        allKeys.forEach((key, i) => requireValue(values[6 + i].exists
           && isDeepStrictEqual(values[6 + i].data(), claimsFor(key)), 'ROLE_RESERVATION_CONFLICT'));
       });
       await auth.setCustomUserClaims(user.uid, claimsFor(key));
@@ -162,8 +183,8 @@ export async function provisionProductionRolesWithAdmin(rawInput, { auth, db, pr
     const values = await tx.getAll(ownerRef, ...roomRefs, presidentAssignmentRef, planRef, ...assignmentRefs, ...priorPresidentRefs);
     checkRoom(values);
     requireValue(values[5].exists && matchesPlan(values[5].data()), 'ROLE_PLAN_CONFLICT');
-    requireValue(values.slice(10).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
-    KEYS.forEach((key, i) => requireValue(values[6 + i].exists
+    requireValue(values.slice(6 + allKeys.length).every(value => !value.exists), 'ROLE_RESERVATION_CONFLICT');
+    allKeys.forEach((key, i) => requireValue(values[6 + i].exists
       && isDeepStrictEqual(values[6 + i].data(), claimsFor(key)), 'ROLE_RESERVATION_CONFLICT'));
     if (values[5].data().status !== 'complete') tx.update(planRef, { status: 'complete' });
   });

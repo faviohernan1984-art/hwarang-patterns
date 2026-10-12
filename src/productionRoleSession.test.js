@@ -18,7 +18,7 @@ const cases = [
   [{ roomId: 'A', role: 'public' }, '/rooms/A/public'],
   ...[1, 2, 3].map(judgeId => [{ roomId: 'A', role: 'judge', judgeId }, '/rooms/A/judge/' + judgeId]),
 ];
-function fixture(claims, failAt) {
+function fixture(claims, failAt, judgeCount = 3) {
   const events = [];
   const auth = { app: { options: { projectId: production.VITE_FIREBASE_PROJECT_ID, appId: production.VITE_FIREBASE_APP_ID } },
     emulatorConfig: null, currentUser: { uid: 'previous-session' } };
@@ -39,6 +39,11 @@ function fixture(claims, failAt) {
       if (failAt === 'token') throw new Error('SYNTHETIC_PRIVATE_ERROR');
       return { claims };
     },
+    async getRoomJudgeCount(candidate, roomId) {
+      assert.equal(candidate, auth); assert.equal(roomId, claims.roomId); events.push('roomConfiguration');
+      if (failAt === 'configuration') throw new Error('ROOM_READ_FAILED');
+      return judgeCount;
+    },
   } };
   return { auth, options, events, login: () => loginProductionRole(auth, 'individual@patterns.test', 'synthetic-password', options) };
 }
@@ -57,7 +62,7 @@ const badClaims = [null, undefined, [], {}, { role: 'president' }, { roomId: 'A'
   { roomId: 1, role: 'public' }, { roomId: '../A', role: 'public' }, { roomId: 'A?role=president', role: 'public' },
   { roomId: 'A%2Fpresident', role: 'public' }, { roomId: '', role: 'public' }, { roomId: 'a'.repeat(65), role: 'public' },
   { roomId: 'A', role: 'admin' }, { roomId: 'A', role: 'President' }, { roomId: 'A', role: 'judge' },
-  ...[0, 4, 5, -1, 1.5, '1', true, null].map(judgeId => ({ roomId: 'A', role: 'judge', judgeId })),
+  ...[0, 6, -1, 1.5, '1', true, null].map(judgeId => ({ roomId: 'A', role: 'judge', judgeId })),
   ...['president', 'public'].flatMap(role => [1, null, undefined].map(judgeId => ({ roomId: 'A', role, judgeId }))),
   { roomId: 'A', role: 'public', matchId: 'legacy' }, { roomId: 'A', role: 'public', admin: true },
   { roomId: 'A', role: 'judge', judgeId: 1, roomAccessVersion: 1 },
@@ -75,7 +80,7 @@ test('Firebase login obtains fresh verified claims before navigation for each ro
       aud: 'hwarang-patterns-production', sub: 'verified-user', iat: 1, exp: 2,
       email_verified: true, firebase: { sign_in_provider: 'password' } });
     assert.equal(await f.login(), path);
-    assert.deepEqual(f.events, ['persistence', 'signOut', 'signIn', 'verifiedClaims']);
+    assert.deepEqual(f.events, ['persistence', 'signOut', 'signIn', 'verifiedClaims', ...(claims.role === 'judge' ? ['roomConfiguration'] : [])]);
     assert.equal(f.auth.currentUser.uid, 'verified-user');
   }
 });
@@ -119,4 +124,27 @@ test('environment mismatches close the old session before any authentication att
     assert.equal(f.auth.currentUser, null);
     assert.deepEqual(f.events, ['signOut']);
   }
+});
+
+test('judge login follows server configuration through 3 to 5 to 3 transitions', async () => {
+  for (const count of [3, 5, 3, 5]) {
+    for (let judgeId = 1; judgeId <= 5; judgeId++) {
+      const f = fixture({ roomId: 'A', role: 'judge', judgeId }, undefined, count);
+      // Caller-controlled hints are ignored; only the server count decides.
+      Object.assign(f.options, { judgeCount: 5, config: { patternJudges: 5 } });
+      if (judgeId <= count) assert.equal(await f.login(), '/rooms/A/judge/' + judgeId);
+      else { await assert.rejects(f.login(), /PRODUCTION_ROLE_CLAIMS_REQUIRED/); assert.equal(f.auth.currentUser, null); }
+      assert.equal(f.events.includes('roomConfiguration'), true);
+    }
+  }
+});
+
+test('missing, malformed or inaccessible room configuration rejects judge login and clears session', async () => {
+  for (const count of [undefined, null, '5', 4, 0]) {
+    const f = fixture({ roomId: 'A', role: 'judge', judgeId: 1 });
+    f.options.sdk.getRoomJudgeCount = async () => count;
+    await assert.rejects(f.login()); assert.equal(f.auth.currentUser, null);
+  }
+  const f = fixture({ roomId: 'A', role: 'judge', judgeId: 4 }, 'configuration', 5);
+  await assert.rejects(f.login(), /ROOM_READ_FAILED/); assert.equal(f.auth.currentUser, null);
 });
