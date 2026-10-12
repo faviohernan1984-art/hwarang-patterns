@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { auth } from './firebase.js';
 import { loginPresident, logoutPresident } from './presidentSession.js';
+import { loginProductionRole } from './productionRoleSession.js';
 
 export default function PresidentLogin({ logoutOnly = false }) {
+  const production = import.meta.env.VITE_APP_ENV === 'production';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -12,10 +14,11 @@ export default function PresidentLogin({ logoutOnly = false }) {
     setBusy(true);
     setMessage('');
     try {
-      const path = await loginPresident(auth, email, password);
+      const path = await (production ? loginProductionRole(auth, email, password) : loginPresident(auth, email, password));
       window.location.replace(path);
     } catch {
-      setMessage('Acceso rechazado: verificá las credenciales y la asignación President.');
+      setMessage(production ? 'Acceso rechazado: verificá tus credenciales y la asignación de sala y rol.'
+        : 'Acceso rechazado: verificá las credenciales y la asignación President.');
     } finally { setPassword(''); setBusy(false); }
   }
   async function logout() {
@@ -28,7 +31,7 @@ export default function PresidentLogin({ logoutOnly = false }) {
     finally { setBusy(false); }
   }
   return <main style={{ padding: 24 }}>
-    <h1>{logoutOnly ? 'Cerrar sesión' : 'Acceso President'}</h1>
+    <h1>{logoutOnly ? 'Cerrar sesión' : production ? 'Acceso Patterns' : 'Acceso President'}</h1>
     {!logoutOnly && <form onSubmit={login}>
       <p><label>Email <input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} disabled={busy} /></label></p>
       <p><label>Contraseña <input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} disabled={busy} /></label></p>
