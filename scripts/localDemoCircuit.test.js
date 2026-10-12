@@ -155,3 +155,39 @@ test('local API issues only provisioned role tokens and refuses malformed judge 
   assert.equal((await request('/api/demo-access/' + id + '/president', { origin: 'http://foreign.invalid' })).statusCode, 403);
   assert.deepEqual(calls, [[id, 'judge/5']]);
 });
+
+test('local API logs only fixed stage and cause labels while preserving public failure responses', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const secret = 'sensitive-token-and-error-details';
+  for (const [code, cause] of [['ECONNREFUSED', 'connection'], [4, 'timeout'], [14, 'unavailable'],
+    [7, 'authorization'], ['auth/user-not-found', 'auth'], [secret, 'unknown']]) {
+    const inner = Object.assign(new Error(secret), { code });
+    const error = new Error(secret + '; retry: node scripts/createLocalDemo.js ' + id, { cause: inner });
+    const request = middleware({ createDemoFn: async () => { throw error; } });
+    const result = await request('/api/create-demo');
+    assert.equal(result.statusCode, 503);
+    assert.deepEqual(result.body, { ok: false, code: 'DEMO_UNAVAILABLE', roomId: id });
+    assert.deepEqual(log.mock.calls.at(-1).arguments, ['LOCAL_DEMO_API_ERROR', { stage: 'create_demo', cause }]);
+  }
+  const tokenRequest = middleware({ demoTokenFn: async () => {
+    throw new Error(secret, { cause: new Error('DEMO_IDENTITIES_NOT_READY') });
+  } });
+  const tokenResult = await tokenRequest('/api/demo-access/' + id + '/president');
+  assert.equal(tokenResult.statusCode, 503);
+  assert.deepEqual(tokenResult.body, { ok: false, code: 'DEMO_UNAVAILABLE' });
+  assert.deepEqual(log.mock.calls.at(-1).arguments, ['LOCAL_DEMO_API_ERROR', { stage: 'demo_token', cause: 'demo_state' }]);
+
+  const responseRequest = middleware({ createDemoFn: async () => ({ identities: null }) });
+  assert.equal((await responseRequest('/api/create-demo')).statusCode, 503);
+  assert.deepEqual(log.mock.calls.at(-1).arguments, ['LOCAL_DEMO_API_ERROR', { stage: 'response', cause: 'unknown' }]);
+  assert.equal(log.mock.calls.length, 8);
+  assert.equal(JSON.stringify(log.mock.calls.map(call => call.arguments)).includes(secret), false);
+
+  const deniedRequest = middleware({ demoTokenFn: async () => {
+    throw Object.assign(new Error(secret), { code: 'DEMO_AUTHORIZATION_DENIED' });
+  } });
+  const denied = await deniedRequest('/api/demo-access/' + id + '/president');
+  assert.equal(denied.statusCode, 403);
+  assert.deepEqual(denied.body, { ok: false, code: 'DEMO_AUTHORIZATION_DENIED' });
+  assert.equal(log.mock.calls.length, 8);
+});

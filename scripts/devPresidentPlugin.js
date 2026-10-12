@@ -4,6 +4,22 @@ import { createLocalDemo } from './createLocalDemo.js';
 import { roomAccessLinks, roomBasePath } from '../src/roomRoutes.js';
 import { demoCredential, authorizationDenied } from './localDemoAuthorization.js';
 
+function localDemoErrorCause(error) {
+  // Only fixed labels leave this boundary; SDK errors can contain credentials.
+  for (let depth = 0; error && depth < 5; depth++, error = error.cause) {
+    if (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'auth/network-request-failed'].includes(error.code)) return 'connection';
+    if ([4, 'ETIMEDOUT', 'deadline-exceeded'].includes(error.code)) return 'timeout';
+    if ([14, 'unavailable'].includes(error.code)) return 'unavailable';
+    if ([7, 16, 'permission-denied', 'unauthenticated', 'auth/insufficient-permission', 'DEMO_AUTHORIZATION_DENIED'].includes(error.code)) return 'authorization';
+    if (['auth/user-not-found', 'auth/invalid-credential', 'auth/internal-error'].includes(error.code)) return 'auth';
+    if (['DEMO_ROOM_NOT_FOUND_OR_INCOMPATIBLE', 'DEMO_PROVISIONING_FAILED', 'DEMO_PROVISIONING_CHANGED',
+      'DEMO_IDENTITY_JOURNAL_CONFLICT', 'DEMO_IDENTITY_DISABLED_OR_CONFLICT', 'DEMO_IDENTITY_ASSIGNMENT_CONFLICT',
+      'DEMO_IDENTITIES_NOT_READY', 'INVALID_DEMO_ROOM_ID', 'INVALID_DEMO_JUDGE_COUNT',
+      'UNSUPPORTED_DEMO_IDENTITY', 'UNVERIFIED_LOCAL_ADMIN', 'UNVERIFIED_LOCAL_DATABASE'].includes(error.message)) return 'demo_state';
+  }
+  return 'unknown';
+}
+
 function loginPage(key, identity = devIdentity(key), roomId = 'A', tokenPath = '/__dev/' + key + '/token') {
   return '<!doctype html><html lang="es"><meta charset="utf-8"><title>Patterns DEV</title><body><h1>' + key + ' DEV - Room ' + roomId + '</h1><button id="login" disabled data-key="' + key + '" data-room-id="' + roomId + '" data-token-path="' + tokenPath + '" data-role="' + identity.claims.role + '" data-judge-id="' + (identity.claims.judgeId ?? '') + '">Entrar como ' + key + ' DEV</button><p id="status">Cargando acceso DEV...</p><script type="module" src="/src/devPresident.js"></script></body></html>';
 }
@@ -45,18 +61,26 @@ export function devPresidentPlugin(env, { demoAccessFn = demoAccess, demoTokenFn
               requestedRoomId = input.roomId ?? null;
             } catch { return reply(400, { ok: false, code: 'INVALID_REQUEST' }); }
           }
+          let stage = 'credential';
           try {
             const credential = demoCredential(req);
             if ((access || requestedRoomId) && !credential) throw authorizationDenied();
-            if (access) return reply(200, { ok: true, token: await demoTokenFn(access[1], access[2], credential) });
+            if (access) {
+              stage = 'demo_token';
+              const token = await demoTokenFn(access[1], access[2], credential);
+              stage = 'response';
+              return reply(200, { ok: true, token });
+            }
+            stage = 'create_demo';
             const result = await createDemoFn(requestedRoomId, { dispose: false, credential });
+            stage = 'response';
             const judgeCount = Object.values(result.identities).filter(identity => identity.claims.role === 'judge').length;
             return reply(result.created ? 201 : 200, { ok: true, roomId: result.roomId, demoSessionId: result.demoSessionId,
               created: result.created, path: roomBasePath(result.roomId), access: roomAccessLinks(result.roomId, judgeCount),
               ...(result.created && result.credentials ? { credentials: result.credentials } : {}) });
           } catch (error) {
             if (error.code === 'DEMO_AUTHORIZATION_DENIED') return reply(403, { ok: false, code: 'DEMO_AUTHORIZATION_DENIED' });
-            console.error('LOCAL_DEMO_API_ERROR');
+            console.error('LOCAL_DEMO_API_ERROR', { stage, cause: localDemoErrorCause(error) });
             const retry = /retry: node scripts\/createLocalDemo.js (demo-patterns-[a-f0-9]{24})/.exec(error.message);
             return reply(503, { ok: false, code: 'DEMO_UNAVAILABLE', ...(retry ? { roomId: retry[1] } : {}) });
           }
