@@ -25,6 +25,14 @@ y escrituras: al pasar a tres, los tokens existentes de 4/5 pierden permisos sin
 eliminar sus cuentas. Al volver a cinco recuperan acceso. DEMO mantiene su flujo
 de autorización separado. Este bloqueo requiere publicar las reglas actualizadas.
 
+En sala A, HOME y los QR profesionales de Público y jueces llevan a `/login` si
+no hay sesión, después de esperar la resolución inicial de Firebase Auth. Una
+sesión de otro rol, juez o sala conserva el bloqueo y ofrece «Cambiar de cuenta».
+El enlace abre el login existente; no cierra automáticamente al Presidente ni
+otorga permisos por URL. Tras autenticarse se usa únicamente el destino derivado
+de claims, sin `returnTo`. Los accesos del Presidente, otras salas y DEMO no
+cambian. HOME/QR mantienen sus rutas y presentación actuales.
+
 Un login nuevo cierra la sesión anterior. Los errores de entorno, persistencia,
 autenticación, obtención de token o claims intentan cerrar la sesión y no devuelven
 un destino. El formulario borra la contraseña y muestra un mensaje genérico sin

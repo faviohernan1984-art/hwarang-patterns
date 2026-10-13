@@ -19,7 +19,7 @@
     "test:provision:production": "node --test scripts/productionProvisioning.test.js",
     "provision:roles:production": "node scripts/provisionProductionRoles.js",
     "test:roles:production": "node --test scripts/productionRoleProvisioning.test.js",
-    "test:login:production": "node --test src/productionRoleSession.test.js src/productionPasswordReset.test.js src/presidentSession.test.js",
+    "test:login:production": "node --test src/productionRoleSession.test.js src/productionPasswordReset.test.js src/presidentSession.test.js src/institutionalLoginNavigation.test.js",
     "test:provision": "node --test scripts/provisionPresident.test.js",
     "president:password": "node scripts/initializePresidentPassword.js",
     "president:password:production": "node scripts/productionPresidentPassword.js",

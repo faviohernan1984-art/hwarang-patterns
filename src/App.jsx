@@ -27,6 +27,7 @@ import { currentPublicState, derivePublicState, serializePublicState } from "./p
 import { parseAppRoute, roomBasePath, roomAccessLinks, isDemoRoomId, roomRolePath } from "./roomRoutes";
 import { applyForcedDecisionState } from "./forcedDecision";
 import { authorizeRoomRoute, identityFromClaims } from "./roomAccess";
+import { institutionalLoginAction } from './institutionalLoginNavigation.js';
 import { useWakeLock } from "./useWakeLock";
 import HwarangAnimatedIsotype from "./components/HwarangAnimatedIsotype";
 import "./HomeScreen.css";
@@ -597,12 +598,13 @@ function useRoomIdentity() {
   return state;
 }
 
-function AccessState({ title, detail }) {
+function AccessState({ title, detail, loginLabel }) {
   return (
     <div style={{ ...styles.page, display: "grid", placeItems: "center", minHeight: "100vh" }}>
       <div style={{ ...styles.panel, maxWidth: 560, textAlign: "center" }}>
         <h1 style={{ marginTop: 0 }}>{title}</h1>
         <p>{detail}</p>
+        {loginLabel && <p><a href="/login" style={{ color: '#60a5fa' }}>{loginLabel}</a></p>}
       </div>
     </div>
   );
@@ -2307,6 +2309,12 @@ export default function App() {
   const route = parseAppRoute(path);
   const identityState = useRoomIdentity();
   const authorization = authorizeRoomRoute(identityState.identity, route);
+  const loginAction = institutionalLoginAction({ environment: import.meta.env.VITE_APP_ENV, route,
+    identity: identityState.identity, hasSession: Boolean(auth.currentUser),
+    loading: identityState.loading, error: identityState.error });
+  useEffect(() => {
+    if (loginAction === 'redirect') window.location.replace('/login');
+  }, [loginAction]);
   const cleanDemo = route.valid && isDemoRoomId(route.roomId)
     && (route.role === 'home' ? path === roomBasePath(route.roomId) : path === roomRolePath(route.roomId, route.role, route.judgeId));
 
@@ -2320,14 +2328,17 @@ export default function App() {
   if (!route.valid) {
     return <><GlobalAppStyle /><AccessState title="INVALID ACCESS" detail={route.reason} /></>;
   }
+  if (loginAction === 'redirect') {
+    return <><GlobalAppStyle /><AccessState title="INICIAR SESIÓN" detail="Ingresá con tu cuenta para acceder a la sala." loginLabel="Ir al login" /></>;
+  }
   if (identityState.loading) {
     return <><GlobalAppStyle /><AccessState title="VERIFYING ACCESS" detail="Checking room credentials..." /></>;
   }
   if (identityState.error) {
-    return <><GlobalAppStyle /><AccessState title="ACCESS ERROR" detail={identityState.error} /></>;
+    return <><GlobalAppStyle /><AccessState title="ACCESS ERROR" detail={identityState.error} loginLabel={loginAction === 'switch' ? 'Cambiar de cuenta' : undefined} /></>;
   }
   if (!authorization.allowed) {
-    return <><GlobalAppStyle /><AccessState title="ACCESS DENIED" detail={authorization.reason} /></>;
+    return <><GlobalAppStyle /><AccessState title="ACCESS DENIED" detail={authorization.reason} loginLabel={loginAction === 'switch' ? 'Cambiar de cuenta' : undefined} /></>;
   }
 
   return <>{isDemoRoomId(route.roomId) && ['president', 'public', 'judge'].includes(route.role) && <DemoWatermark role={route.role} />}<AuthorizedRoomApp route={route} navigate={navigate} /></>;
